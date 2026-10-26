@@ -9,7 +9,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import ImageTk
 
-from . import __version__, config, diag, instance, logo, updater
+from . import __version__, config, diag, instance, logo, render, updater
 from . import theme as t
 from .devices import CATALOG, MOTHERBOARD, NOTHING, detect
 
@@ -31,6 +31,19 @@ def label(parent, text, size=13, color=t.TEXT, bold=False, **kw):
                         font=ctk.CTkFont(t.FONT, size, "bold" if bold else "normal"), **kw)
 
 
+# Aperçu de l'éclairage sur la photo : quelques couleurs à essayer, zone par zone
+SWATCHES = [("D'origine", "origin"), ("Jaune", (255, 212, 0)), ("Rouge", (255, 30, 40)), ("Vert", (40, 230, 90)),
+            ("Bleu", (40, 120, 255)), ("Violet", (190, 80, 255)), ("Blanc", (255, 255, 255)), ("Éteint", None)]
+
+
+def device_image(key, w, h, colors=None):
+    """CTkImage de l'appareil (dessinée en double pour les écrans haute densité), ou None sans photo."""
+    img = render.compose(key, w * 2, h * 2, colors)
+    if img is None:
+        return None
+    return ctk.CTkImage(light_image=img, dark_image=img, size=(w, h))
+
+
 def status_of(spec, found):
     """(texte, couleur) de l'état d'un appareil."""
     if spec.support == MOTHERBOARD:
@@ -50,6 +63,7 @@ class App(ctk.CTk):
         self.update_info = None
         self.found, self.unknown = {}, []
         self.current = None
+        self.preview_colors = {}  # clé de l'appareil -> {zone: couleur} essayée sur la photo
         self._from_threads = queue.Queue()
 
         self.title("IcueLite")
@@ -176,11 +190,19 @@ class App(ctk.CTk):
 
     def device_card(self, spec):
         card = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
+        card.grid_columnconfigure(0, weight=1)
         text, color = status_of(spec, self.found)
-        label(card, KIND_LABELS.get(spec.kind, "").upper(), 11, t.MUTED).pack(anchor="w", padx=16, pady=(14, 0))
-        label(card, spec.name, 16, bold=True, anchor="w", justify="left", wraplength=360).pack(anchor="w", padx=16)
-        label(card, f"● {text}", 12, color).pack(anchor="w", padx=16, pady=(4, 0))
-        button(card, "Ouvrir", lambda: self.show_device(spec), height=28, width=90).pack(anchor="w", padx=16, pady=(10, 14))
+        texts = ctk.CTkFrame(card, fg_color="transparent")
+        texts.grid(row=0, column=0, sticky="nw")
+        label(texts, KIND_LABELS.get(spec.kind, "").upper(), 11, t.MUTED).pack(anchor="w", padx=16, pady=(14, 0))
+        label(texts, spec.name, 16, bold=True, anchor="w", justify="left", wraplength=200).pack(anchor="w", padx=16)
+        label(texts, f"● {text}", 12, color).pack(anchor="w", padx=16, pady=(4, 0))
+        button(texts, "Ouvrir", lambda: self.show_device(spec), height=28, width=90).pack(anchor="w", padx=16, pady=(10, 14))
+        image = device_image(spec.key, 170, 110, self.preview_colors.get(spec.key))
+        if image:
+            pic = ctk.CTkLabel(card, image=image, text="", cursor="hand2")
+            pic.grid(row=0, column=1, padx=(0, 10), pady=8, sticky="e")
+            pic.bind("<Button-1>", lambda _e: self.show_device(spec))
         return card
 
     def show_device(self, spec):
@@ -190,9 +212,10 @@ class App(ctk.CTk):
         label(self.content, KIND_LABELS.get(spec.kind, "").upper(), 12, t.MUTED).grid(row=0, column=0, sticky="w")
         label(self.content, spec.name, 24, bold=True).grid(row=1, column=0, columnspan=2, sticky="w")
         label(self.content, f"● {text}", 13, color).grid(row=2, column=0, sticky="w", pady=(2, 14))
+        self.photo_card(spec)
 
         info = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
-        info.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        info.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         lines = [("Référence", spec.ref), ("Liaison", spec.link)]
         detected = self.found.get(spec.key)
         if detected:
@@ -208,12 +231,48 @@ class App(ctk.CTk):
 
         if spec.features:
             box = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
-            box.grid(row=4, column=0, columnspan=2, sticky="ew")
+            box.grid(row=5, column=0, columnspan=2, sticky="ew")
             label(box, "Réglages prévus", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
             for feat in spec.features:
                 label(box, f"•  {feat}", 13, t.MUTED).pack(anchor="w", padx=22, pady=1)
             label(box, "Les réglages arrivent appareil par appareil dans les prochaines versions.", 12, t.FAINT).pack(
                 anchor="w", padx=16, pady=(8, 14))
+
+    def photo_card(self, spec):
+        """Grande photo de l'appareil et, s'il a des zones lumineuses, un aperçu de leurs couleurs."""
+        colors = self.preview_colors.setdefault(spec.key, {})
+        image = device_image(spec.key, 640, 300, colors)
+        if image is None:
+            return
+        card = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
+        card.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        pic = ctk.CTkLabel(card, image=image, text="")
+        pic.pack(padx=16, pady=(14, 6))
+        zones = render.zones(spec.key)
+        if not zones:
+            ctk.CTkFrame(card, fg_color="transparent", height=8).pack()
+            return
+        label(card, "Aperçu de l'éclairage (sur l'image seulement pour l'instant)", 12, t.FAINT).pack(
+            anchor="w", padx=16, pady=(0, 4))
+
+        def pick(zone, value):
+            if value == "origin":
+                colors.pop(zone, None)
+            else:
+                colors[zone] = value
+            pic.configure(image=device_image(spec.key, 640, 300, colors))
+
+        for zone in zones:
+            row = ctk.CTkFrame(card, fg_color="transparent")
+            row.pack(anchor="w", padx=16, pady=(0, 6))
+            label(row, zone, 12, t.MUTED, width=110, anchor="w").pack(side="left")
+            for name, value in SWATCHES:
+                fill = "#%02x%02x%02x" % value if isinstance(value, tuple) else t.CARD_HI
+                ctk.CTkButton(row, text=" " if isinstance(value, tuple) else name, width=28 if isinstance(value, tuple) else 70,
+                              height=24, corner_radius=12, fg_color=fill, hover_color=fill, border_width=1,
+                              border_color=t.BORDER, text_color=t.TEXT, font=ctk.CTkFont(t.FONT, 11),
+                              command=lambda z=zone, v=value: pick(z, v)).pack(side="left", padx=2)
+        ctk.CTkFrame(card, fg_color="transparent", height=8).pack()
 
     def run_diag(self):
         self.status("Diagnostic en cours…")

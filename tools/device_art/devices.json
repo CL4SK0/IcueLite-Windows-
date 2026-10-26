@@ -1,0 +1,11 @@
+{
+ "_aide": "Coordonnées en pixels de la photo source (après rotate/crop). logo = [x0, y0, x1, y1] du logo Corsair à remplacer ; zones : nom -> polys (polygones, absents = tout l'appareil), fill (allumer toute la surface), min_sat/min_val (seuils de détection), color (couleur d'origine).",
+ "vanguard": {"source": "vanguard.png"},
+ "k100": {"source": "k100.png"},
+ "ironclaw": {"source": "ironclaw.png"},
+ "virtuoso": {"source": "virtuoso.png"},
+ "link": {"source": "link.png"},
+ "ax1600i": {"source": "ax1600i.png"},
+ "nautilus": {"source": "nautilus.png"},
+ "vengeance": {"source": "vengeance.png"}
+}
