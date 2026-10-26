@@ -1,0 +1,64 @@
+import json
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest import mock
+
+from icuelite import updater
+
+
+class UpdaterTest(unittest.TestCase):
+    def test_parse_version(self):
+        self.assertEqual(updater.parse_version("v0.5.12"), (0, 5, 12))
+        self.assertEqual(updater.parse_version("1.2"), (1, 2, 0))
+        self.assertGreater(updater.parse_version("0.5.10"), updater.parse_version("0.5.9"))
+
+    def release(self, tag):
+        return json.dumps({"tag_name": tag, "body": "Nouveau truc\nDétails",
+                           "assets": [{"name": "IcueLite-pack.zip", "browser_download_url": "https://x/pack.zip"},
+                                      {"name": "IcueLite.exe", "browser_download_url": "https://x/app.exe"}]}).encode()
+
+    def test_check(self):
+        with mock.patch.object(updater, "repo", return_value="erwan/icuelite"), \
+             mock.patch.object(updater, "__version__", "0.5.3"):
+            with mock.patch.object(updater, "_get", return_value=self.release("v0.5.3")):
+                self.assertIsNone(updater.check())
+            with mock.patch.object(updater, "_get", return_value=self.release("v0.5.4")):
+                info = updater.check()
+                self.assertEqual(info["version"], "0.5.4")
+                self.assertEqual(info["url"], "https://x/pack.zip")
+                with mock.patch.object(updater, "frozen", return_value=True):
+                    self.assertEqual(updater.check()["url"], "https://x/app.exe")
+
+    def test_no_repo(self):
+        with mock.patch.object(updater, "repo", return_value=None):
+            self.assertIsNone(updater.check())
+
+    def test_clean_env(self):
+        with mock.patch.dict("os.environ", {"_PYI_APPLICATION_HOME_DIR": "x", "_MEIPASS2": "y", "PATH": "p"}):
+            env = updater.clean_env()
+        self.assertNotIn("_PYI_APPLICATION_HOME_DIR", env)
+        self.assertNotIn("_MEIPASS2", env)
+        self.assertEqual(env["PATH"], "p")
+        self.assertEqual(env["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+
+    def test_extract_pack(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            archive = tmp / "pack.zip"
+            with zipfile.ZipFile(archive, "w") as z:
+                z.writestr("icuelite/GUIDE.md", "nouveau")
+                z.writestr("icuelite/icuelite/app.py", "x = 1")
+                z.writestr("icuelite/../evil.txt", "non")
+            root = tmp / "install"
+            (root / "icuelite").mkdir(parents=True)
+            (root / "GUIDE.md").write_text("ancien")
+            updater.extract_pack(archive, root)
+            self.assertEqual((root / "GUIDE.md").read_text(), "nouveau")
+            self.assertEqual((root / "icuelite" / "app.py").read_text(), "x = 1")
+            self.assertFalse((tmp / "evil.txt").exists())
+
+
+if __name__ == "__main__":
+    unittest.main()
