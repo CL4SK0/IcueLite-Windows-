@@ -108,3 +108,73 @@ def ico_path():
         except OSError:
             return None
     return path
+
+
+# --- logo Corsair « lite » : seulement sur les dessins des appareils, à la place du logo d'origine ---
+
+_sails_cache = None
+
+
+def _sails():
+    global _sails_cache
+    if _sails_cache is None:
+        import json
+        with open(os.path.join(ASSETS, "sails.json"), encoding="utf-8") as f:
+            _sails_cache = json.load(f)
+    return _sails_cache
+
+
+def _draw_sails(draw, x, y, scale, width, fill):
+    """Contour fin des voiles, coin haut-gauche en (x, y), largeur totale = scale."""
+    for shape in _sails()["shapes"]:
+        pts = [(x + px * scale, y + py * scale) for px, py in shape]
+        draw.line(pts + pts[:2], fill=fill, width=width, joint="curve")
+
+
+def _halo(img, radius):
+    from PIL import ImageFilter
+    blur = img.filter(ImageFilter.GaussianBlur(radius))
+    blur.putalpha(blur.getchannel("A").point(lambda a: min(255, int(a * 1.3))))
+    out = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    out.alpha_composite(blur)
+    out.alpha_composite(img)
+    return out
+
+
+def corsair_mark(size=256, glow=True):
+    """Les voiles Corsair en contour fin lumineux (comme le symbole IcueLite), dans un carré RGBA."""
+    S = size * 4
+    out = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    w, h = _sails()["size"]
+    span = S * 0.84
+    x, y = (S - w * span) / 2, (S - h * span) / 2
+    _draw_sails(ImageDraw.Draw(out), x, y, span, max(4, round(S * 0.028)), WHITE + (255,))
+    if glow:
+        out = _halo(out, S * 0.025)
+    return out.resize((size, size), Image.LANCZOS)
+
+
+def corsair_wordmark(height=40, glow=False):
+    """Voiles + « CORSAIR » en capitales fines espacées : la version « lite » du logo complet."""
+    S = 4
+    H = height * S
+    w, h = _sails()["size"]
+    sail_w = H * 0.95 * w / h
+    font = _font("Exo2-ExtraLight.ttf", int(H * 0.62))
+    tmp = ImageDraw.Draw(Image.new("L", (1, 1)))
+    spacing = H * 0.10
+    letters = "CORSAIR"
+    widths = [tmp.textlength(c, font=font) for c in letters]
+    text_w = sum(widths) + spacing * (len(letters) - 1)
+    gap = H * 0.28
+    W = int(sail_w + gap + text_w + H * 0.1)
+    out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(out)
+    _draw_sails(d, 0, H * 0.025, H * 0.95 / h, max(3, round(H * 0.045)), WHITE + (255,))
+    cx = sail_w + gap
+    for c, cw in zip(letters, widths):
+        d.text((cx, H * 0.55), c, font=font, fill=WHITE + (255,), anchor="lm")
+        cx += cw + spacing
+    if glow:
+        out = _halo(out, H * 0.03)
+    return out.resize((W // S, height), Image.LANCZOS)

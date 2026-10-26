@@ -2,9 +2,9 @@
 
 Pour chaque appareil du catalogue, assets/devices/ peut contenir :
 - <clé>.png : la photo détourée (RGBA), lumières éteintes et logo Corsair effacé ;
-- <clé>.json : où poser le symbole ou le logo IcueLite (à la place des logos Corsair), et les zones lumineuses ;
+- <clé>.json : où poser le logo Corsair « lite » (voiles en contour fin, à la place du logo d'origine), et les zones lumineuses ;
 - <clé>_<zone>.png : le masque (niveaux de gris) de chaque zone lumineuse, recoloré à l'affichage.
-Une zone sans masque (null) est un logo rétroéclairé : c'est le symbole IcueLite qui prend sa couleur.
+Une zone sans masque (null) est un logo rétroéclairé : ce sont les voiles qui prennent sa couleur.
 Sans photo, l'appli affiche simplement la fiche sans image.
 """
 
@@ -56,9 +56,13 @@ def _paint(img, color, mask):
 
 
 def _logo_image(lg, k, color):
-    """Symbole (ou logo complet) IcueLite d'un emplacement, à l'échelle, tourné et teinté au besoin."""
+    """Voiles (ou logo complet) Corsair « lite » d'un emplacement, à l'échelle, tourné et teinté au besoin."""
     size = max(4, round(lg["size"] * k))
-    img = logo.wordmark(size) if lg.get("kind") == "wordmark" else logo.mark(size)
+    engraved = isinstance(lg.get("style"), list)  # gravé ou imprimé : pas de halo lumineux
+    if lg.get("kind") == "wordmark":
+        img = logo.corsair_wordmark(size, glow=not engraved)
+    else:
+        img = logo.corsair_mark(size, glow=not engraved)
     style = lg.get("style")
     if isinstance(style, list):  # gravé ou imprimé d'une seule couleur
         color = style
@@ -75,7 +79,7 @@ def _logo_image(lg, k, color):
 
 
 def compose(key, w, h, colors=None, margin=0.92):
-    """L'appareil dans un cadre w × h (RGBA transparent) : ombre portée, symbole IcueLite à la place du
+    """L'appareil dans un cadre w × h (RGBA transparent) : ombre portée, voiles Corsair « lite » à la place du
     logo Corsair, et chaque zone lumineuse dans sa couleur (colors : zone -> (r, g, b) ; zone absente =
     la lumière de la photo officielle, None = éteinte). Renvoie None si l'appareil n'a pas de photo."""
     p = photo(key)
@@ -128,7 +132,7 @@ def compose(key, w, h, colors=None, margin=0.92):
         zone = lg.get("zone")
         color = colors.get(zone) if zone else None
         if zone and zone in colors and colors[zone] is None:
-            color = (58, 60, 64)  # rétroéclairage éteint : symbole sombre, juste en relief
+            color = (58, 60, 64)  # rétroéclairage éteint : voiles sombres, juste en relief
         sym = _logo_image(lg, k, color)
         x = round(off[0] + lg["at"][0] * k - sym.width / 2)
         y = round(off[1] + lg["at"][1] * k - sym.height / 2)
