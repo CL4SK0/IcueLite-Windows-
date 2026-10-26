@@ -45,7 +45,7 @@ def _section(lines, title, rows, fields):
     lines.append("")
 
 
-def report():
+def report(extra=None):
     lines = [f"IcueLite {__version__} - diagnostic {time.strftime('%Y-%m-%d %H:%M:%S')}",
              f"Python {sys.version.split()[0]} sur {sys.platform}", "", "Interfaces HID Corsair (VID 1b1c) :"]
     raw = sorted(enumerate_raw(), key=lambda d: (d["product_id"], d["interface_number"], d["usage_page"]))
@@ -80,11 +80,13 @@ def report():
              powershell("Get-Service | Where-Object { $_.Name -match 'Corsair|iCUE' -or $_.DisplayName -match 'Corsair' } "
                         "| Select-Object Name,DisplayName,Status"),
              ("Name", "DisplayName", "Status"))
+    if extra:
+        lines += ["Échanges récents avec les appareils :"] + list(extra) + [""]
     return "\n".join(lines)
 
 
-def write(folder=None):
-    """Écrit le rapport et renvoie le chemin du fichier."""
+def write(folder=None, extra=None):
+    """Écrit le rapport (avec, si fourni, le journal des pilotes) et renvoie le chemin du fichier."""
     out = Path(folder or Path.cwd()) / "icuelite-diag.txt"
-    out.write_text(report(), encoding="utf-8")
+    out.write_text(report(extra), encoding="utf-8")
     return out

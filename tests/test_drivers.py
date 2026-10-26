@@ -1,0 +1,99 @@
+import unittest
+
+from icuelite.drivers import bragi, legacy, link
+from icuelite.drivers.base import DriverError, pick_interface
+
+
+class FakeTransport:
+    def __init__(self, output_len=65, replies=()):
+        self.output_len = output_len
+        self.sent = []
+        self.replies = list(replies)
+
+    def write(self, data):
+        assert len(data) == self.output_len, (len(data), self.output_len)
+        self.sent.append(bytes(data))
+
+    def read(self, timeout_ms=500):
+        return self.replies.pop(0) if self.replies else b""
+
+    def close(self):
+        pass
+
+
+class LegacyTest(unittest.TestCase):
+    def test_colors_switch_to_software_mode_first(self):
+        t = FakeTransport()
+        d = legacy.Ironclaw(t)
+        d.set_colors({"Logo": (255, 0, 0), "Molette": None}, brightness=50)
+        self.assertEqual(t.sent[0][:4], b"\x00\x07\x04\x02")
+        self.assertEqual(t.sent[1][:5], bytes([0, 0x07, 0x22, 3, 0x01]))
+        # Logo (zone 2) à moitié de rouge, molette (zone 4) éteinte
+        self.assertIn(bytes([2, 128, 0, 0]), t.sent[1])
+        self.assertIn(bytes([4, 0, 0, 0]), t.sent[1])
+        d.close()
+        self.assertEqual(t.sent[-1][:4], b"\x00\x07\x04\x01")  # rend la main en partant
+
+    def test_dpi(self):
+        t = FakeTransport()
+        stages = legacy.Ironclaw(t).set_dpi([800, 1625, 99999], 1)
+        self.assertEqual(stages, [800, 1600, 18000])
+        self.assertEqual(t.sent[0][:10], bytes([0, 0x07, 0x13, 0xD1, 0, 0, 0x20, 0x03, 0x20, 0x03]))
+        self.assertEqual(t.sent[3][:6], bytes([0, 0x07, 0x13, 0x05, 0, 0b1110]))
+        self.assertEqual(t.sent[4][:6], bytes([0, 0x07, 0x13, 0x02, 0, 2]))
+
+    def test_poll(self):
+        t = FakeTransport()
+        legacy.Ironclaw(t).set_poll_rate(500)
+        self.assertEqual(t.sent[0][:6], bytes([0, 0x07, 0x0A, 0, 0, 2]))
+        with self.assertRaises(DriverError):
+            legacy.Ironclaw(t).set_poll_rate(333)
+
+
+class BragiTest(unittest.TestCase):
+    def test_planar_and_chunks(self):
+        self.assertEqual(bragi.planar([(1, 2, 3), (4, 5, 6)]), bytes([1, 4, 2, 5, 3, 6]))
+        packets = bragi.write_resource(64, 0, bytes(range(200)))
+        self.assertEqual(packets[0][:8], bytes([0, 0x08, 0x06, 0x00, 200, 0, 0, 0]))
+        self.assertEqual(packets[1][:4], bytes([0, 0x08, 0x07, 0x00]))
+        data = packets[0][8:] + b"".join(p[4:] for p in packets[1:])
+        self.assertEqual(data[:200], bytes(range(200)))
+
+    def test_k100_colors(self):
+        t = FakeTransport()
+        d = bragi.K100(t)
+        d.set_colors({"Touches": (10, 20, 30)}, brightness=40)
+        self.assertEqual(t.sent[0][:6], bytes([0, 0x08, 0x01, 0x03, 0x00, 0x02]))  # mode logiciel
+        self.assertIn(bytes([0, 0x08, 0x0D, 0x00, 0x01]), [p[:5] for p in t.sent])  # ouverture de l'éclairage
+        self.assertIn(bytes([0, 0x08, 0x01, 0x02, 0x00, 0x90, 0x01]), [p[:7] for p in t.sent])  # 400/1000
+
+
+class LinkTest(unittest.TestCase):
+    def test_parse_channels(self):
+        reply = bytes([0, 0, 0x08, 0, 0x25, 0x00, 3, 0, 0xE8, 0x03, 1, 0, 0, 0, 0xDC, 0x05]) + bytes(20)
+        self.assertEqual(link.parse_channels(reply, link.TYPE_SPEEDS), [(0, 1000), (2, 1500)])
+        self.assertEqual(link.parse_channels(reply, link.TYPE_TEMPS), [])
+
+    def test_fan_duty_has_a_floor(self):
+        speeds = bytes([0, 0, 0x08, 0, 0x25, 0x00, 2, 0, 0xE8, 0x03, 0, 0xE8, 0x03]) + bytes(20)
+        t = FakeTransport(output_len=513, replies=[b"", b"", speeds, b"", b"", b"", b"", b""])
+        d = link.LinkHub(t)
+        d.read_sensors()
+        d.set_fan_duty(5)
+        self.assertEqual(d.duty, link.MIN_DUTY)
+        write = next(p for p in t.sent if p[3:5] == b"\x06\x01")
+        self.assertEqual(write[9:11], link.TYPE_SET_SPEED)
+        self.assertEqual(write[11:20], bytes([2, 0, 0, 20, 0, 1, 0, 20, 0]))
+
+
+class InterfaceTest(unittest.TestCase):
+    def test_pick_vendor_interface(self):
+        infos = [{"usage_page": 0x0001, "output_report_length": 0, "interface_number": 0},
+                 {"usage_page": 0xFFC2, "output_report_length": 65, "interface_number": 1, "path": "x"}]
+        self.assertEqual(pick_interface(infos, (0xFFC2,), 64)["path"], "x")
+        with self.assertRaises(DriverError):
+            pick_interface(infos[:1])
+
+
+if __name__ == "__main__":
+    unittest.main()

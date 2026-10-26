@@ -13,6 +13,9 @@ GENERIC_WRITE = 0x40000000
 FILE_SHARE_READ = 0x01
 FILE_SHARE_WRITE = 0x02
 OPEN_EXISTING = 3
+FILE_FLAG_OVERLAPPED = 0x40000000
+WAIT_OBJECT_0 = 0
+ERROR_IO_PENDING = 997
 DIGCF_PRESENT = 0x02
 DIGCF_DEVICEINTERFACE = 0x10
 ERROR_INSUFFICIENT_BUFFER = 122
@@ -85,6 +88,19 @@ CreateFileW = _proto(_kernel32, "CreateFileW", HANDLE, wintypes.LPCWSTR, wintype
 CloseHandle = _proto(_kernel32, "CloseHandle", wintypes.BOOL, HANDLE)
 WriteFile = _proto(_kernel32, "WriteFile", wintypes.BOOL, HANDLE, PVOID, wintypes.DWORD,
                    ctypes.POINTER(wintypes.DWORD), PVOID)
+ReadFile = _proto(_kernel32, "ReadFile", wintypes.BOOL, HANDLE, PVOID, wintypes.DWORD,
+                  ctypes.POINTER(wintypes.DWORD), PVOID)
+CreateEventW = _proto(_kernel32, "CreateEventW", HANDLE, PVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR)
+WaitForSingleObject = _proto(_kernel32, "WaitForSingleObject", wintypes.DWORD, HANDLE, wintypes.DWORD)
+GetOverlappedResult = _proto(_kernel32, "GetOverlappedResult", wintypes.BOOL, HANDLE, PVOID,
+                             ctypes.POINTER(wintypes.DWORD), wintypes.BOOL)
+CancelIo = _proto(_kernel32, "CancelIo", wintypes.BOOL, HANDLE)
+HidD_FlushQueue = _proto(_hid, "HidD_FlushQueue", wintypes.BOOLEAN, HANDLE)
+
+
+class OVERLAPPED(ctypes.Structure):
+    _fields_ = [("Internal", ctypes.c_size_t), ("InternalHigh", ctypes.c_size_t),
+                ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD), ("hEvent", HANDLE)]
 
 
 def _error(what):
@@ -92,8 +108,8 @@ def _error(what):
     return OSError(code, f"{what} : {ctypes.FormatError(code).strip()} (code {code})")
 
 
-def _open(path, access):
-    handle = CreateFileW(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, 0, None)
+def _open(path, access, flags=0):
+    handle = CreateFileW(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE, None, OPEN_EXISTING, flags, None)
     if handle is None or handle == INVALID_HANDLE_VALUE:
         raise _error("ouverture")
     return handle
@@ -170,6 +186,7 @@ def enumerate(vendor_id=0, product_id=0):
                 "usage": caps.Usage if caps else 0,
                 "feature_report_length": caps.FeatureReportByteLength if caps else 0,
                 "output_report_length": caps.OutputReportByteLength if caps else 0,
+                "input_report_length": caps.InputReportByteLength if caps else 0,
                 "product_string": product,
             })
         finally:
@@ -179,6 +196,8 @@ def enumerate(vendor_id=0, product_id=0):
 
 class Transport:
     def __init__(self, path):
+        self.path = path
+        self.reader = None
         try:
             self.handle = _open(path, GENERIC_READ | GENERIC_WRITE)
         except OSError:
@@ -187,6 +206,7 @@ class Transport:
         caps = _caps(self.handle)
         self.feature_len = caps.FeatureReportByteLength if caps else 0
         self.output_len = caps.OutputReportByteLength if caps else 0
+        self.input_len = caps.InputReportByteLength if caps else 0
 
     def _pad(self, data, length):
         data = bytes(data)
@@ -216,7 +236,39 @@ class Transport:
             return len(data)
         return len(data)
 
+    def read(self, timeout_ms=500):
+        """Prochain rapport d'entrée (octet 0 = report ID), ou b"" si rien n'arrive à temps."""
+        if self.reader is None:
+            # Poignée à part, en mode asynchrone : c'est ce qui permet d'abandonner la lecture après un délai
+            self.reader = _open(self.path, GENERIC_READ | GENERIC_WRITE, FILE_FLAG_OVERLAPPED)
+            self.event = CreateEventW(None, True, False, None)
+        size = max(self.input_len, 1)
+        buf = ctypes.create_string_buffer(size)
+        ov = OVERLAPPED()
+        ov.hEvent = self.event
+        got = wintypes.DWORD()
+        if not ReadFile(self.reader, buf, size, ctypes.byref(got), ctypes.byref(ov)):
+            if ctypes.get_last_error() != ERROR_IO_PENDING:
+                raise _error("lecture")
+            if WaitForSingleObject(self.event, timeout_ms) != WAIT_OBJECT_0:
+                CancelIo(self.reader)
+                GetOverlappedResult(self.reader, ctypes.byref(ov), ctypes.byref(got), True)
+                return b""
+            if not GetOverlappedResult(self.reader, ctypes.byref(ov), ctypes.byref(got), False):
+                raise _error("lecture")
+        return buf.raw[:got.value]
+
+    def flush(self):
+        """Oublie les rapports d'entrée en attente (réponses périmées)."""
+        if self.reader is not None:
+            HidD_FlushQueue(self.reader)
+
     def close(self):
-        if self.handle:
-            CloseHandle(self.handle)
-            self.handle = None
+        for name in ("reader", "handle"):
+            handle = getattr(self, name, None)
+            if handle:
+                CloseHandle(handle)
+                setattr(self, name, None)
+        if getattr(self, "event", None):
+            CloseHandle(self.event)
+            self.event = None

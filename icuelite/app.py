@@ -11,7 +11,9 @@ from PIL import ImageTk
 
 from . import __version__, config, diag, instance, logo, render, updater
 from . import theme as t
+from .control import Controller
 from .devices import CATALOG, MOTHERBOARD, NOTHING, detect
+from .drivers import DRIVERS
 
 KIND_LABELS = {"keyboard": "Clavier", "mouse": "Souris", "headset": "Casque", "case": "Boîtier",
                "psu": "Alimentation", "cooler": "Watercooling", "memory": "Mémoire"}
@@ -63,8 +65,10 @@ class App(ctk.CTk):
         self.update_info = None
         self.found, self.unknown = {}, []
         self.current = None
-        self.preview_colors = {}  # clé de l'appareil -> {zone: couleur} essayée sur la photo
         self._from_threads = queue.Queue()
+        self.ctrl = Controller(self.cfg, notify=lambda key, text, error=False:
+                               self.from_thread(self.on_driver_message, key, text, error))
+        self.sensor_labels = None
 
         self.title("IcueLite")
         self.geometry(self.cfg.get("geometry", "1120x720"))
@@ -82,6 +86,7 @@ class App(ctk.CTk):
         self.after(100, self.run_thread_calls)
         self.after(700, self.watch_show_requests)
         self.after(1500, self.check_updates)
+        self.after(2000, self.refresh_sensors)
 
     # --- mise en page ---
     def set_icon(self):
@@ -151,6 +156,7 @@ class App(ctk.CTk):
     # --- appareils ---
     def refresh_devices(self):
         self.found, self.unknown = detect()
+        self.ctrl.attach(self.found)
         for child in self.device_list.winfo_children():
             child.destroy()
         for spec in CATALOG:
@@ -198,7 +204,7 @@ class App(ctk.CTk):
         label(texts, spec.name, 16, bold=True, anchor="w", justify="left", wraplength=200).pack(anchor="w", padx=16)
         label(texts, f"● {text}", 12, color).pack(anchor="w", padx=16, pady=(4, 0))
         button(texts, "Ouvrir", lambda: self.show_device(spec), height=28, width=90).pack(anchor="w", padx=16, pady=(10, 14))
-        image = device_image(spec.key, 170, 110, self.preview_colors.get(spec.key))
+        image = device_image(spec.key, 170, 110, self.preview_colors(spec.key))
         if image:
             pic = ctk.CTkLabel(card, image=image, text="", cursor="hand2")
             pic.grid(row=0, column=1, padx=(0, 10), pady=8, sticky="e")
@@ -229,38 +235,230 @@ class App(ctk.CTk):
                 row=len(lines), column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
         ctk.CTkFrame(info, fg_color="transparent", height=10).grid(row=len(lines) + 1, column=0)
 
-        if spec.features:
-            box = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
-            box.grid(row=5, column=0, columnspan=2, sticky="ew")
-            label(box, "Réglages prévus", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
+        driver = self.ctrl.drivers.get(spec.key)
+        self.sensor_labels = None
+        if driver is not None:
+            self.settings_panels(spec, driver, row=5)
+            if driver.experimental:
+                label(info, "Protocole repris des projets libres, pas encore vérifié sur ce modèle : "
+                      "si un réglage ne prend pas, lance le diagnostic et envoie-le.", 12, t.WARNING,
+                      anchor="w", justify="left", wraplength=640).grid(
+                    row=len(lines) + 2, column=0, columnspan=2, sticky="w", padx=16, pady=(0, 10))
+            self.ctrl.firmware(spec.key, lambda fw: self.from_thread(self.show_firmware, spec, info, len(lines) + 3, fw))
+        elif spec.features:
+            box = self.card_frame(row=5)
+            label(box, "Réglages", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
             for feat in spec.features:
                 label(box, f"•  {feat}", 13, t.MUTED).pack(anchor="w", padx=22, pady=1)
-            label(box, "Les réglages arrivent appareil par appareil dans les prochaines versions.", 12, t.FAINT).pack(
-                anchor="w", padx=16, pady=(8, 14))
+            if spec.key in self.ctrl.errors:
+                why = f"Impossible d'ouvrir l'appareil : {self.ctrl.errors[spec.key]}"
+            elif spec.key not in DRIVERS:
+                why = "Pilote pas encore écrit pour cet appareil : il arrive dans une prochaine version."
+            else:
+                why = "Branche l'appareil pour régler tout ça (puis « Actualiser » sur le tableau de bord)."
+            label(box, why, 12, t.FAINT, anchor="w", justify="left", wraplength=640).pack(anchor="w", padx=16, pady=(8, 14))
+
+    def card_frame(self, row, pady=(0, 12)):
+        box = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
+        box.grid(row=row, column=0, columnspan=2, sticky="ew", pady=pady)
+        return box
+
+    def show_firmware(self, spec, info, row, fw):
+        if fw and self.current is spec and info.winfo_exists():
+            label(info, "Firmware", 12, t.MUTED).grid(row=row, column=0, sticky="nw", padx=(16, 12), pady=(0, 10))
+            label(info, fw, 13, anchor="w").grid(row=row, column=1, sticky="w", pady=(0, 10))
+
+    def preview_colors(self, key):
+        """Couleurs mémorisées de l'appareil, au format de render.compose."""
+        stored = self.ctrl.settings(key)["colors"]
+        return {zone: (tuple(c) if c else None) for zone, c in stored.items()}
+
+    def on_driver_message(self, key, text, error):
+        spec = next((s for s in CATALOG if s.key == key), None)
+        self.status(f"{spec.name if spec else key} : {text}", error)
+
+    # --- panneaux de réglages ---
+    def settings_panels(self, spec, driver, row):
+        s = self.ctrl.settings(spec.key)
+        if driver.dpi_range:
+            self.dpi_panel(spec, driver, s, row)
+            row += 1
+        if driver.poll_rates:
+            box = self.card_frame(row)
+            row += 1
+            label(box, "Fréquence d'interrogation", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
+            values = [f"{hz} Hz" for hz in driver.poll_rates]
+            seg = ctk.CTkSegmentedButton(box, values=values, selected_color=t.ACCENT, selected_hover_color=t.ACCENT_HOVER,
+                                         text_color=t.TEXT, font=ctk.CTkFont(t.FONT, 12),
+                                         command=lambda v: self.set_poll(spec, int(v.split()[0])))
+            seg.set(f"{s['poll']} Hz" if s["poll"] in driver.poll_rates else values[-1])
+            seg.pack(anchor="w", padx=16, pady=(0, 14))
+        if driver.fans or driver.sensors:
+            self.fan_panel(spec, driver, s, row)
+
+    def dpi_panel(self, spec, driver, s, row):
+        box = self.card_frame(row)
+        label(box, "DPI", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 2))
+        label(box, f"Jusqu'à {driver.dpi_stage_count} paliers ; le bouton DPI de la souris passe de l'un à l'autre.",
+              12, t.FAINT).pack(anchor="w", padx=16, pady=(0, 6))
+        lo, hi, step = driver.dpi_range
+        stages = list(s["dpi"])
+        active = ctk.IntVar(value=s["dpi_active"])
+        rows = ctk.CTkFrame(box, fg_color="transparent")
+        rows.pack(anchor="w", fill="x", padx=16)
+
+        def apply():
+            s["dpi"] = [int(v) for v in stages]
+            s["dpi_active"] = min(active.get(), len(stages) - 1)
+            self.ctrl.save(spec.key, "dpi")
+            self.ctrl.submit(spec.key, "set_dpi", list(s["dpi"]), s["dpi_active"], label="DPI")
+
+        def draw():
+            for child in rows.winfo_children():
+                child.destroy()
+            for i, value in enumerate(stages):
+                line = ctk.CTkFrame(rows, fg_color="transparent")
+                line.pack(anchor="w", fill="x", pady=2)
+                ctk.CTkRadioButton(line, text=f"Palier {i + 1}", variable=active, value=i, width=100,
+                                   fg_color=t.ACCENT, hover_color=t.ACCENT_HOVER, font=ctk.CTkFont(t.FONT, 12),
+                                   command=apply).pack(side="left")
+                shown = label(line, f"{value} DPI", 12, width=80)
+                slider = ctk.CTkSlider(line, from_=lo, to=hi, number_of_steps=(hi - lo) // step, width=380,
+                                       button_color=t.ACCENT, button_hover_color=t.ACCENT_HOVER, progress_color=t.ACCENT)
+                slider.set(value)
+
+                def moved(v, i=i, shown=shown):
+                    stages[i] = int(round(v / step) * step)
+                    shown.configure(text=f"{stages[i]} DPI")
+                slider.configure(command=moved)
+                slider.bind("<ButtonRelease-1>", lambda _e: apply())
+                slider.pack(side="left", padx=10)
+                shown.pack(side="left")
+
+        def add():
+            if len(stages) < driver.dpi_stage_count:
+                stages.append(min(hi, (stages[-1] if stages else 800) * 2))
+                draw()
+                apply()
+
+        def remove():
+            if len(stages) > 1:
+                stages.pop()
+                if active.get() >= len(stages):
+                    active.set(len(stages) - 1)
+                draw()
+                apply()
+
+        draw()
+        actions = ctk.CTkFrame(box, fg_color="transparent")
+        actions.pack(anchor="w", padx=16, pady=(6, 14))
+        button(actions, "Ajouter un palier", add, height=28, width=140).pack(side="left")
+        button(actions, "Retirer le dernier", remove, height=28, width=140).pack(side="left", padx=8)
+
+    def set_poll(self, spec, hz):
+        self.ctrl.settings(spec.key)["poll"] = hz
+        self.ctrl.save(spec.key, "poll")
+        self.ctrl.submit(spec.key, "set_poll_rate", hz, label="Fréquence")
+
+    def fan_panel(self, spec, driver, s, row):
+        box = self.card_frame(row)
+        label(box, "Ventilation", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
+        if driver.fans:
+            line = ctk.CTkFrame(box, fg_color="transparent")
+            line.pack(anchor="w", fill="x", padx=16)
+            shown = label(line, "", 12, width=60)
+            slider = ctk.CTkSlider(line, from_=20, to=100, number_of_steps=16, width=320, button_color=t.ACCENT,
+                                   button_hover_color=t.ACCENT_HOVER, progress_color=t.ACCENT)
+            slider.set(s["fan"] or 50)
+
+            def apply_fan():
+                self.ctrl.save(spec.key, "fan")
+                self.ctrl.submit(spec.key, "set_fan_duty", s["fan"],
+                                 label="Ventilateurs" if s["fan"] is None else f"Ventilateurs à {s['fan']} %")
+
+            def mode(value):
+                s["fan"] = None if value == "Automatique" else int(slider.get())
+                style_slider()
+                shown.configure(text="" if s["fan"] is None else f"{s['fan']} %")
+                apply_fan()
+
+            def moved(v):
+                shown.configure(text=f"{int(v)} %")
+
+            def released(_e):
+                if s["fan"] is not None:
+                    s["fan"] = int(slider.get())
+                    apply_fan()
+
+            def style_slider():
+                on = s["fan"] is not None
+                slider.configure(state="normal" if on else "disabled", button_color=t.ACCENT if on else t.FAINT,
+                                 progress_color=t.ACCENT if on else t.FAINT)
+
+            seg = ctk.CTkSegmentedButton(line, values=["Automatique", "Vitesse fixe"], selected_color=t.ACCENT,
+                                         selected_hover_color=t.ACCENT_HOVER, font=ctk.CTkFont(t.FONT, 12), command=mode)
+            seg.set("Automatique" if s["fan"] is None else "Vitesse fixe")
+            seg.pack(side="left")
+            slider.configure(command=moved)
+            style_slider()
+            slider.bind("<ButtonRelease-1>", released)
+            slider.pack(side="left", padx=12)
+            shown.configure(text="" if s["fan"] is None else f"{s['fan']} %")
+            shown.pack(side="left")
+            label(box, "Automatique : le hub suit sa propre courbe. Vitesse fixe : jamais sous 20 %.", 12, t.FAINT).pack(
+                anchor="w", padx=16, pady=(4, 0))
+        if driver.sensors:
+            self.sensor_labels = (spec.key, label(box, "Lecture des régimes…", 13, t.MUTED, anchor="w", justify="left"))
+            self.sensor_labels[1].pack(anchor="w", padx=16, pady=(8, 14))
+        else:
+            ctk.CTkFrame(box, fg_color="transparent", height=8).pack()
+
+    def refresh_sensors(self):
+        if self.sensor_labels and self.sensor_labels[1].winfo_exists():
+            key, widget = self.sensor_labels
+            data = self.ctrl.sensors.get(key)
+            if data:
+                parts = [f"{name} : {rpm} tr/min" for name, rpm in data["fans"]]
+                parts += [f"{name} : {temp:.1f} °C" for name, temp in data["temps"]]
+                widget.configure(text="   ".join(parts) or "Aucun ventilateur ni sonde détecté sur le hub.")
+        self.after(2000, self.refresh_sensors)
 
     def photo_card(self, spec):
         """Grande photo de l'appareil et, s'il a des zones lumineuses, un aperçu de leurs couleurs."""
-        colors = self.preview_colors.setdefault(spec.key, {})
-        image = device_image(spec.key, 640, 300, colors)
+        s = self.ctrl.settings(spec.key)
+        driver = self.ctrl.drivers.get(spec.key)
+        image = device_image(spec.key, 640, 300, self.preview_colors(spec.key))
         if image is None:
             return
         card = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
         card.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 12))
         pic = ctk.CTkLabel(card, image=image, text="")
         pic.pack(padx=16, pady=(14, 6))
-        zones = render.zones(spec.key)
+        zones = list(driver.zones) if driver and driver.zones else render.zones(spec.key)
         if not zones:
             ctk.CTkFrame(card, fg_color="transparent", height=8).pack()
             return
-        label(card, "Aperçu de l'éclairage (sur l'image seulement pour l'instant)", 12, t.FAINT).pack(
+        live = bool(driver and driver.zones)
+        label(card, "Éclairage" if live else "Aperçu de l'éclairage (sur l'image seulement : appareil non branché "
+              "ou pas encore piloté)", 15 if live else 12, t.TEXT if live else t.FAINT, bold=live).pack(
             anchor="w", padx=16, pady=(0, 4))
 
         def pick(zone, value):
             if value == "origin":
-                colors.pop(zone, None)
+                s["colors"].pop(zone, None)
+            elif value == "custom":
+                from tkinter import colorchooser
+                current = s["colors"].get(zone) or (255, 212, 0)
+                chosen = colorchooser.askcolor(color="#%02x%02x%02x" % tuple(current), title=f"Couleur : {zone}")[0]
+                if not chosen:
+                    return
+                s["colors"][zone] = [int(c) for c in chosen]
             else:
-                colors[zone] = value
-            pic.configure(image=device_image(spec.key, 640, 300, colors))
+                s["colors"][zone] = list(value) if value else None
+            self.ctrl.save(spec.key, "colors")
+            pic.configure(image=device_image(spec.key, 640, 300, self.preview_colors(spec.key)))
+            if live:
+                self.ctrl.apply_colors(spec.key, label="Éclairage")
 
         for zone in zones:
             row = ctk.CTkFrame(card, fg_color="transparent")
@@ -272,6 +470,26 @@ class App(ctk.CTk):
                               height=24, corner_radius=12, fg_color=fill, hover_color=fill, border_width=1,
                               border_color=t.BORDER, text_color=t.TEXT, font=ctk.CTkFont(t.FONT, 11),
                               command=lambda z=zone, v=value: pick(z, v)).pack(side="left", padx=2)
+            ctk.CTkButton(row, text="Autre…", width=60, height=24, corner_radius=12, fg_color=t.CARD_HI,
+                          hover_color=t.BORDER, border_width=1, border_color=t.BORDER, text_color=t.TEXT,
+                          font=ctk.CTkFont(t.FONT, 11), command=lambda z=zone: pick(z, "custom")).pack(side="left", padx=2)
+        if live and driver.brightness:
+            line = ctk.CTkFrame(card, fg_color="transparent")
+            line.pack(anchor="w", padx=16, pady=(4, 6))
+            label(line, "Luminosité", 12, t.MUTED, width=110, anchor="w").pack(side="left")
+            shown = label(line, f"{s['brightness']} %", 12, width=50)
+            slider = ctk.CTkSlider(line, from_=0, to=100, number_of_steps=20, width=300, button_color=t.ACCENT,
+                                   button_hover_color=t.ACCENT_HOVER, progress_color=t.ACCENT,
+                                   command=lambda v: shown.configure(text=f"{int(v)} %"))
+            slider.set(s["brightness"])
+
+            def released(_e):
+                s["brightness"] = int(slider.get())
+                self.ctrl.save(spec.key, "colors")
+                self.ctrl.apply_colors(spec.key, label="Luminosité")
+            slider.bind("<ButtonRelease-1>", released)
+            slider.pack(side="left", padx=(4, 10))
+            shown.pack(side="left")
         ctk.CTkFrame(card, fg_color="transparent", height=8).pack()
 
     def run_diag(self):
@@ -280,7 +498,7 @@ class App(ctk.CTk):
         def work():
             folder = Path.home() / "Desktop"
             try:
-                path = diag.write(folder if folder.is_dir() else updater.install_dir())
+                path = diag.write(folder if folder.is_dir() else updater.install_dir(), extra=self.ctrl.journal())
             except Exception as exc:
                 self.from_thread(self.status, f"Diagnostic impossible : {exc}", True)
                 return
@@ -385,6 +603,7 @@ class App(ctk.CTk):
     def quit_app(self):
         self.cfg["geometry"] = self.geometry()
         config.save(self.cfg)
+        self.ctrl.shutdown()  # les appareils reprennent leur éclairage et leur ventilation autonomes
         self.destroy()
 
 
