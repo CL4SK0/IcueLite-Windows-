@@ -17,13 +17,14 @@ class RenderTest(unittest.TestCase):
         render._cache.clear()
         img = Image.new("RGBA", (200, 100), (0, 0, 0, 0))
         ImageDraw.Draw(img).rectangle((10, 10, 190, 90), fill=(30, 30, 32, 255))
+        ImageDraw.Draw(img).rectangle((20, 40, 180, 80), fill=(255, 212, 0, 255))  # lumière jaune de la photo
         img.save(os.path.join(self.dir.name, "k100.png"))
         zone = Image.new("L", (200, 100), 0)
         ImageDraw.Draw(zone).rectangle((20, 40, 180, 80), fill=255)
         zone.save(os.path.join(self.dir.name, "k100_touches.png"))
         with open(os.path.join(self.dir.name, "k100.json"), "w", encoding="utf-8") as f:
             json.dump({"zones": {"Touches": "k100_touches.png"}, "colors": {"Touches": [255, 212, 0]},
-                       "logo": [100, 25, 20]}, f)
+                       "logos": [{"at": [100, 25], "size": 20}]}, f)
 
     def tearDown(self):
         render.DEVICE_ART = self.old
@@ -41,10 +42,11 @@ class RenderTest(unittest.TestCase):
         lit = render.compose("k100", 400, 200).getpixel(center)
         red = render.compose("k100", 400, 200, {"Touches": (255, 0, 0)}).getpixel(center)
         off = render.compose("k100", 400, 200, {"Touches": None}).getpixel(center)
-        self.assertGreater(lit[1], 150)                    # jaune d'origine
+        self.assertGreater(lit[1], 150)                    # jaune de la photo, tel quel
         self.assertGreater(red[0], 200)
         self.assertLess(red[1], 60)
-        self.assertLess(max(off[:3]), 60)                  # éteint : le plastique sombre
+        self.assertLess(max(off[:3]), 100)                 # éteint : gris, sans couleur
+        self.assertLess(max(off[:3]) - min(off[:3]), 8)
 
 
 if __name__ == "__main__":

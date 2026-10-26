@@ -5,9 +5,8 @@
 Les réglages de chaque appareil sont dans devices.json (à côté de ce script) : nom du fichier source,
 recadrage, logo Corsair à effacer, zones lumineuses. Pour chaque appareil, le script :
 1. détoure la photo (transparence d'origine, ou fond uni repéré sur les bords puis affiné par GrabCut) ;
-2. efface le logo Corsair (le symbole IcueLite est posé à sa place par l'appli, à la bonne taille) ;
-3. repère les zones lumineuses (pixels saturés et clairs) et les éteint sur la photo, pour que l'appli
-   puisse les rallumer dans n'importe quelle couleur ;
+2. efface les logos Corsair (le symbole ou le logo IcueLite est posé à leur place par l'appli) ;
+3. repère les zones lumineuses (pixels saturés et clairs), que l'appli peut éteindre ou recolorer ;
 4. écrit icuelite/assets/devices/<clé>.png, <clé>.json, <clé>_<zone>.png, et un aperçu dans
    <dossier des photos>/apercu/.
 
@@ -99,15 +98,6 @@ def light_of(bgr, area, min_sat=90, min_val=70):
     return cv2.bitwise_and(strength, area)
 
 
-def dominant_color(bgr, weight):
-    w = weight.astype(np.float32) / 255
-    if w.sum() < 1:
-        return None
-    b, g, r = [float((bgr[..., i] * w).sum() / w.sum()) for i in range(3)]
-    top = max(r, g, b, 1)
-    return [round(c * 255 / top) for c in (r, g, b)]
-
-
 def prepare(key, cfg, src_dir):
     img = load(os.path.join(src_dir, cfg["source"]))
     if cfg.get("rotate"):
@@ -128,35 +118,53 @@ def prepare(key, cfg, src_dir):
         return [[x - x0, y - y0] for x, y in points]
 
     bgr = img[..., :3].copy()
-    meta = {"zones": {}, "colors": {}}
+    meta = {"zones": {}}
 
-    # logo Corsair : effacé, l'appli pose le symbole IcueLite au même endroit
-    if cfg.get("logo"):
-        lx0, ly0, lx1, ly1 = cfg["logo"]
-        (lx0, ly0), (lx1, ly1) = shift([[lx0, ly0], [lx1, ly1]])
+    # logos Corsair : effacés, l'appli pose le symbole ou le logo IcueLite au même endroit
+    meta["logos"] = []
+    for lg in cfg.get("logos", []):
+        bx0, by0, bx1, by1 = lg["box"]
+        (bx0, by0), (bx1, by1) = shift([[bx0, by0], [bx1, by1]])
         hole = np.zeros(mask.shape, np.uint8)
-        cv2.rectangle(hole, (lx0, ly0), (lx1, ly1), 255, -1)
-        bgr = cv2.inpaint(bgr, hole, 7, cv2.INPAINT_TELEA)
-        meta["logo"] = [(lx0 + lx1) / 2, (ly0 + ly1) / 2, max(lx1 - lx0, ly1 - ly0) * cfg.get("logo_scale", 1.0)]
+        cv2.rectangle(hole, (bx0, by0), (bx1, by1), 255, -1)
+        if lg.get("fill"):  # fond uni (écran, plaque) : on repeint plutôt que de reconstruire
+            bgr[hole > 0] = lg["fill"][::-1]
+        else:
+            bgr = cv2.inpaint(bgr, hole, lg.get("inpaint", 7), cv2.INPAINT_TELEA)
+        if lg.get("kind") == "none":
+            continue
+        meta["logos"].append({"at": [(bx0 + bx1) / 2, (by0 + by1) / 2],
+                              "size": lg.get("size", max(bx1 - bx0, by1 - by0)),
+                              **{k: lg[k] for k in ("kind", "rotate", "style", "zone") if k in lg}})
 
-    # zones lumineuses : repérées sur la photo d'origine, puis éteintes
-    off = np.zeros(mask.shape, np.float32)
+    # zones lumineuses : la photo garde sa lumière d'origine, l'appli assombrit puis recolore chaque zone
     zone_masks = {}
     for name, z in cfg.get("zones", {}).items():
-        area = poly_mask(mask.shape, [shift(p) for p in z["polys"]]) if z.get("polys") else mask.copy()
+        if z.get("logo_only"):  # zone réduite au logo (souris, casque) : pas de masque, le symbole est teinté
+            meta["zones"][name] = None
+            continue
+        if z.get("polys") or z.get("circles"):
+            area = poly_mask(mask.shape, [shift(p) for p in z.get("polys", [])])
+            for cx, cy, ro, ri in z.get("circles", []):
+                (cx, cy), = shift([[cx, cy]])
+                cv2.circle(area, (cx, cy), ro, 255, -1)
+                cv2.circle(area, (cx, cy), ri, 0, -1)
+        else:
+            area = mask.copy()
+        if z.get("exclude"):
+            area[poly_mask(mask.shape, [shift(p) for p in z["exclude"]]) > 0] = 0
         area = cv2.bitwise_and(area, (mask > 128).astype(np.uint8) * 255)
-        light = light_of(img[..., :3], area, z.get("min_sat", 90), z.get("min_val", 70))
+        if z.get("mode") in ("bright", "both"):  # lumière blanche au cœur des ventilateurs : la clarté compte, pas la couleur
+            v = cv2.cvtColor(img[..., :3], cv2.COLOR_BGR2HSV)[..., 2].astype(np.float32)
+            lo = z.get("min_val", 110)
+            light = cv2.bitwise_and((np.clip((v - lo) / max(1, 235 - lo), 0, 1) * 255).astype(np.uint8), area)
+            if z["mode"] == "both":  # plus les bords colorés, moins clairs
+                light = cv2.max(light, light_of(img[..., :3], area, z.get("min_sat", 90), 40))
+        else:
+            light = light_of(img[..., :3], area, z.get("min_sat", 90), z.get("min_val", 70))
         if z.get("fill"):  # zone dessinée à la main (bande, anneau) : toute la surface s'allume
             light = cv2.max(light, cv2.GaussianBlur(area, (0, 0), 1.5))
         zone_masks[name] = light
-        meta["colors"][name] = z.get("color") or dominant_color(img[..., :3], light) or [255, 212, 0]
-        off = np.maximum(off, light.astype(np.float32) / 255)
-    if zone_masks:
-        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY).astype(np.float32)
-        dark = np.clip(gray * 0.35 + 14, 0, 255)  # diffuseur éteint : gris foncé, sans couleur
-        o = cv2.GaussianBlur(cv2.dilate(off, np.ones((3, 3), np.uint8)), (0, 0), 1.2)[..., None]
-        bgr = (bgr.astype(np.float32) * (1 - o) + dark[..., None] * o).astype(np.uint8)
-
     # mise à l'échelle finale
     k = min(1.0, cfg.get("width", 1100) / img.shape[1], cfg.get("height", 700) / img.shape[0])
     size = (round(img.shape[1] * k), round(img.shape[0] * k))
@@ -171,8 +179,9 @@ def prepare(key, cfg, src_dir):
         file = f"{key}_{slug(name)}.png"
         cv2.imwrite(os.path.join(OUT, file), rs(light), [cv2.IMWRITE_PNG_COMPRESSION, 9])
         meta["zones"][name] = file
-    if "logo" in meta:
-        meta["logo"] = [round(v * k, 1) for v in meta["logo"]]
+    for lg in meta["logos"]:
+        lg["at"] = [round(v * k, 1) for v in lg["at"]]
+        lg["size"] = round(lg["size"] * k, 1)
     meta["size"] = list(size)
     with open(os.path.join(OUT, f"{key}.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f, ensure_ascii=False, indent=1)

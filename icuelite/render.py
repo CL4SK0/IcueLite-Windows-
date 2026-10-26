@@ -2,8 +2,9 @@
 
 Pour chaque appareil du catalogue, assets/devices/ peut contenir :
 - <clé>.png : la photo détourée (RGBA), lumières éteintes et logo Corsair effacé ;
-- <clé>.json : le centre et la taille du symbole IcueLite, et les zones lumineuses ;
+- <clé>.json : où poser le symbole ou le logo IcueLite (à la place des logos Corsair), et les zones lumineuses ;
 - <clé>_<zone>.png : le masque (niveaux de gris) de chaque zone lumineuse, recoloré à l'affichage.
+Une zone sans masque (null) est un logo rétroéclairé : c'est le symbole IcueLite qui prend sa couleur.
 Sans photo, l'appli affiche simplement la fiche sans image.
 """
 
@@ -33,7 +34,7 @@ def photo(key):
                 with open(meta_path, encoding="utf-8") as f:
                     meta = json.load(f)
             zones = {name: Image.open(os.path.join(DEVICE_ART, file)).convert("L")
-                     for name, file in meta.get("zones", {}).items()}
+                     for name, file in meta.get("zones", {}).items() if file}
             _photos[key] = (Image.open(path).convert("RGBA"), meta, zones)
     return _photos[key]
 
@@ -54,10 +55,29 @@ def _paint(img, color, mask):
     img.alpha_composite(layer)
 
 
+def _logo_image(lg, k, color):
+    """Symbole (ou logo complet) IcueLite d'un emplacement, à l'échelle, tourné et teinté au besoin."""
+    size = max(4, round(lg["size"] * k))
+    img = logo.wordmark(size) if lg.get("kind") == "wordmark" else logo.mark(size)
+    style = lg.get("style")
+    if isinstance(style, list):  # gravé ou imprimé d'une seule couleur
+        color = style
+    if color is not None:
+        flat = Image.new("RGBA", img.size, tuple(color) + (255,))
+        if isinstance(style, list):
+            flat.putalpha(img.getchannel("A"))
+        else:  # rétroéclairage : la couleur choisie, plus claire là où le symbole est lumineux
+            flat.putalpha(ImageChops.multiply(img.getchannel("A"), img.convert("L").point(lambda v: min(255, v * 2))))
+        img = flat
+    if lg.get("rotate"):
+        img = img.rotate(lg["rotate"], resample=Image.BICUBIC, expand=True)
+    return img
+
+
 def compose(key, w, h, colors=None, margin=0.92):
     """L'appareil dans un cadre w × h (RGBA transparent) : ombre portée, symbole IcueLite à la place du
     logo Corsair, et chaque zone lumineuse dans sa couleur (colors : zone -> (r, g, b) ; zone absente =
-    sa lumière d'origine, None = éteinte). Renvoie None si l'appareil n'a pas de photo."""
+    la lumière de la photo officielle, None = éteinte). Renvoie None si l'appareil n'a pas de photo."""
     p = photo(key)
     if p is None:
         return None
@@ -82,21 +102,39 @@ def compose(key, w, h, colors=None, margin=0.92):
     _paint(out, (0, 0, 0), shadow.filter(ImageFilter.GaussianBlur(max(1, h * 0.02))).point(lambda v: v * 3 // 4))
     out.alpha_composite(shape)
 
+    # recoloration : on garde le relief de la photo (légendes, grilles) et on remplace seulement la teinte
+    gray = shape.convert("L")
     glow = max(1, min(w, h) * 0.012)
     for name, mask in masks.items():
-        color = colors.get(name, meta.get("colors", {}).get(name))
-        if not color:
+        if name not in colors:
             continue
         m = place(mask)
-        _paint(out, color, m)
-        halo = ImageChops.multiply(m.filter(ImageFilter.GaussianBlur(glow)), shape.getchannel("A"))
-        _paint(out, color, halo.point(lambda v: v * 3 // 5))
+        strong = m.filter(ImageFilter.MaxFilter(3)).point(lambda v: min(255, v * 3))
+        color = colors[name]
+        if color:
+            lum = gray.point(lambda v: min(255, int(v * 1.7)))
+            layer = ImageChops.multiply(Image.new("RGB", (w, h), tuple(color)), Image.merge("RGB", (lum,) * 3))
+        else:  # éteinte : diffuseur gris foncé, légendes à peine visibles
+            dim = gray.point(lambda v: int(v * 0.32 + 12))
+            layer = Image.merge("RGB", (dim,) * 3)
+        layer = layer.convert("RGBA")
+        layer.putalpha(strong)
+        out.alpha_composite(layer)
+        if color:
+            halo = ImageChops.multiply(m.filter(ImageFilter.GaussianBlur(glow)), shape.getchannel("A"))
+            _paint(out, color, halo.point(lambda v: v * 2 // 5))
 
-    if "logo" in meta:
-        cx, cy, d = meta["logo"]
-        side = max(4, round(d * k))
-        sym = logo.mark(side)
-        out.alpha_composite(sym, (max(0, round(off[0] + cx * k - side / 2)), max(0, round(off[1] + cy * k - side / 2))))
+    for lg in meta.get("logos", []):
+        zone = lg.get("zone")
+        color = colors.get(zone) if zone else None
+        if zone and zone in colors and colors[zone] is None:
+            color = (58, 60, 64)  # rétroéclairage éteint : symbole sombre, juste en relief
+        sym = _logo_image(lg, k, color)
+        x = round(off[0] + lg["at"][0] * k - sym.width / 2)
+        y = round(off[1] + lg["at"][1] * k - sym.height / 2)
+        layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        layer.paste(sym, (x, y))
+        out.alpha_composite(layer)
 
     if len(_cache) > 40:
         _cache.clear()

@@ -1,0 +1,19 @@
+{
+ "zones": {
+  "Ventilateurs": "link_ventilateurs.png",
+  "Bandes": "link_bandes.png"
+ },
+ "logos": [
+  {
+   "at": [
+    428.0,
+    619.8
+   ],
+   "size": 25.5
+  }
+ ],
+ "size": [
+  538,
+  700
+ ]
+}

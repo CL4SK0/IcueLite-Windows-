@@ -1,0 +1,20 @@
+{
+ "zones": {
+  "Logo": null,
+  "Molette": "ironclaw_molette.png"
+ },
+ "logos": [
+  {
+   "at": [
+    215.9,
+    565.6
+   ],
+   "size": 76.3,
+   "zone": "Logo"
+  }
+ ],
+ "size": [
+  391,
+  700
+ ]
+}

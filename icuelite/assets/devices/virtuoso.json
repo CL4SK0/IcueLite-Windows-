@@ -1,0 +1,20 @@
+{
+ "zones": {
+  "Logo": null,
+  "Micro": "virtuoso_micro.png"
+ },
+ "logos": [
+  {
+   "at": [
+    404.1,
+    508.6
+   ],
+   "size": 55.4,
+   "zone": "Logo"
+  }
+ ],
+ "size": [
+  569,
+  700
+ ]
+}

@@ -1,11 +1,500 @@
 {
- "_aide": "Coordonnées en pixels de la photo source (après rotate/crop). logo = [x0, y0, x1, y1] du logo Corsair à remplacer ; zones : nom -> polys (polygones, absents = tout l'appareil), fill (allumer toute la surface), min_sat/min_val (seuils de détection), color (couleur d'origine).",
- "vanguard": {"source": "vanguard.png"},
- "k100": {"source": "k100.png"},
- "ironclaw": {"source": "ironclaw.png"},
- "virtuoso": {"source": "virtuoso.png"},
- "link": {"source": "link.png"},
- "ax1600i": {"source": "ax1600i.png"},
- "nautilus": {"source": "nautilus.png"},
- "vengeance": {"source": "vengeance.png"}
+ "_aide": "Coordonnées en pixels des photos officielles 1100 × 1100 (après rotate/crop). logos : box [x0, y0, x1, y1] du logo Corsair à effacer ; kind mark (symbole) ou wordmark (logo complet, size = hauteur) ; style [r, g, b] pour un logo gravé ou imprimé d'une couleur ; zone = zone lumineuse qui le teinte. zones : polys / circles [cx, cy, rayon, trou] / exclude, mode sat (couleurs vives) ou bright (clarté), logo_only pour un logo rétroéclairé.",
+ "vanguard": {
+  "source": "vanguard.png",
+  "crop": [
+   0,
+   380,
+   1100,
+   1100
+  ],
+  "logos": [
+   {
+    "box": [
+     517,
+     8,
+     584,
+     20
+    ],
+    "kind": "wordmark",
+    "size": 11,
+    "style": [
+     118,
+     120,
+     124
+    ]
+   },
+   {
+    "box": [
+     543,
+     347,
+     558,
+     415
+    ],
+    "kind": "wordmark",
+    "size": 14,
+    "rotate": -90,
+    "style": [
+     128,
+     130,
+     134
+    ]
+   },
+   {
+    "box": [
+     793,
+     36,
+     822,
+     61
+    ],
+    "size": 24
+   }
+  ],
+  "zones": {
+   "Touches": {
+    "polys": [
+     [
+      [
+       190,
+       22
+      ],
+      [
+       910,
+       22
+      ],
+      [
+       910,
+       268
+      ],
+      [
+       190,
+       268
+      ]
+     ]
+    ],
+    "exclude": [
+     [
+      [
+       758,
+       18
+      ],
+      [
+       912,
+       18
+      ],
+      [
+       912,
+       82
+      ],
+      [
+       758,
+       82
+      ]
+     ]
+    ],
+    "min_sat": 80
+   }
+  }
+ },
+ "k100": {
+  "source": "k100.png",
+  "logos": [
+   {
+    "box": [
+     559,
+     308,
+     589,
+     337
+    ],
+    "size": 27
+   },
+   {
+    "box": [
+     566,
+     703,
+     582,
+     770
+    ],
+    "kind": "wordmark",
+    "size": 14,
+    "rotate": -90,
+    "style": [
+     128,
+     130,
+     134
+    ]
+   }
+  ],
+  "zones": {
+   "Touches": {
+    "polys": [
+     [
+      [
+       95,
+       338
+      ],
+      [
+       1062,
+       338
+      ],
+      [
+       1062,
+       615
+      ],
+      [
+       95,
+       615
+      ]
+     ]
+    ],
+    "min_sat": 80
+   }
+  }
+ },
+ "ironclaw": {
+  "source": "ironclaw.png",
+  "logos": [
+   {
+    "box": [
+     514,
+     830,
+     650,
+     948
+    ],
+    "size": 118,
+    "zone": "Logo"
+   }
+  ],
+  "zones": {
+   "Logo": {
+    "logo_only": true
+   },
+   "Molette": {
+    "polys": [
+     [
+      [
+       522,
+       288
+      ],
+      [
+       642,
+       288
+      ],
+      [
+       642,
+       402
+      ],
+      [
+       522,
+       402
+      ]
+     ]
+    ],
+    "min_sat": 90
+   }
+  }
+ },
+ "virtuoso": {
+  "source": "virtuoso.png",
+  "logos": [
+   {
+    "box": [
+     690,
+     750,
+     782,
+     842
+    ],
+    "size": 86,
+    "zone": "Logo"
+   }
+  ],
+  "zones": {
+   "Logo": {
+    "logo_only": true
+   },
+   "Micro": {
+    "polys": [
+     [
+      [
+       105,
+       895
+      ],
+      [
+       178,
+       895
+      ],
+      [
+       178,
+       950
+      ],
+      [
+       105,
+       950
+      ]
+     ]
+    ],
+    "min_sat": 80
+   }
+  }
+ },
+ "link": {
+  "source": "link.png",
+  "logos": [
+   {
+    "box": [
+     777,
+     949,
+     822,
+     999
+    ],
+    "size": 40
+   }
+  ],
+  "zones": {
+   "Ventilateurs": {
+    "circles": [
+     [
+      780,
+      305,
+      94,
+      33
+     ],
+     [
+      780,
+      545,
+      94,
+      33
+     ],
+     [
+      782,
+      775,
+      94,
+      33
+     ]
+    ],
+    "min_sat": 60,
+    "min_val": 50
+   },
+   "Bandes": {
+    "polys": [
+     [
+      [
+       180,
+       20
+      ],
+      [
+       560,
+       20
+      ],
+      [
+       560,
+       112
+      ],
+      [
+       180,
+       112
+      ]
+     ],
+     [
+      [
+       180,
+       975
+      ],
+      [
+       560,
+       975
+      ],
+      [
+       560,
+       1068
+      ],
+      [
+       180,
+       1068
+      ]
+     ],
+     [
+      [
+       562,
+       40
+      ],
+      [
+       650,
+       40
+      ],
+      [
+       650,
+       1010
+      ],
+      [
+       562,
+       1010
+      ]
+     ]
+    ],
+    "min_sat": 80,
+    "min_val": 45
+   }
+  }
+ },
+ "ax1600i": {
+  "source": "ax1600i.png",
+  "logos": [
+   {
+    "box": [
+     446,
+     320,
+     670,
+     388
+    ],
+    "kind": "wordmark",
+    "size": 48,
+    "rotate": -11,
+    "style": [
+     64,
+     66,
+     70
+    ]
+   },
+   {
+    "box": [
+     60,
+     518,
+     256,
+     616
+    ],
+    "kind": "wordmark",
+    "size": 50,
+    "rotate": -9
+   }
+  ]
+ },
+ "nautilus": {
+  "source": "nautilus.png",
+  "logos": [
+   {
+    "box": [
+     244,
+     484,
+     282,
+     514
+    ],
+    "size": 30,
+    "style": [
+     70,
+     71,
+     75
+    ]
+   },
+   {
+    "box": [
+     537,
+     488,
+     570,
+     514
+    ],
+    "size": 28,
+    "style": [
+     70,
+     71,
+     75
+    ]
+   },
+   {
+    "box": [
+     798,
+     489,
+     827,
+     515
+    ],
+    "size": 25,
+    "style": [
+     70,
+     71,
+     75
+    ]
+   }
+  ],
+  "zones": {
+   "Ventilateurs": {
+    "circles": [
+     [
+      260,
+      505,
+      162,
+      50
+     ],
+     [
+      553,
+      508,
+      147,
+      47
+     ],
+     [
+      813,
+      508,
+      132,
+      42
+     ]
+    ],
+    "exclude": [
+     [
+      [
+       640,
+       525
+      ],
+      [
+       740,
+       525
+      ],
+      [
+       790,
+       535
+      ],
+      [
+       812,
+       580
+      ],
+      [
+       838,
+       610
+      ],
+      [
+       838,
+       750
+      ],
+      [
+       820,
+       762
+      ],
+      [
+       594,
+       762
+      ],
+      [
+       578,
+       746
+      ],
+      [
+       578,
+       585
+      ],
+      [
+       595,
+       548
+      ],
+      [
+       615,
+       532
+      ]
+     ]
+    ],
+    "mode": "both",
+    "min_val": 95
+   }
+  }
+ },
+ "vengeance": {
+  "source": "vengeance.png"
+ }
 }
