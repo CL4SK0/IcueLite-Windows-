@@ -85,6 +85,20 @@ def report(extra=None):
     return "\n".join(lines)
 
 
+SUPPORT_EMAIL = "erwan.narbone@gmail.com"
+
+
+def mailto(path, version):
+    """Lien mailto: vers le support, avec objet et texte tout prêts (le fichier, lui, doit être joint à la main :
+    mailto ne sait pas joindre de pièce et limite la longueur du texte)."""
+    from urllib.parse import quote
+    subject = f"IcueLite {version} - diagnostic"
+    body = (f"Bonjour,\n\nVoici mon diagnostic IcueLite.\n"
+            f"Le fichier à joindre : {path}\n"
+            "(son contenu est aussi dans le presse-papiers : Ctrl+V pour le coller ici si besoin)\n")
+    return f"mailto:{SUPPORT_EMAIL}?subject={quote(subject)}&body={quote(body)}"
+
+
 def write(folder=None, extra=None):
     """Écrit le rapport (avec, si fourni, le journal des pilotes) et renvoie le chemin du fichier."""
     out = Path(folder or Path.cwd()) / "icuelite-diag.txt"

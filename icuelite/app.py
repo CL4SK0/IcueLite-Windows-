@@ -2,9 +2,12 @@
 
 import os
 import queue
+import subprocess
 import sys
 import threading
 from pathlib import Path
+
+import tkinter as tk
 
 import customtkinter as ctk
 from PIL import ImageTk
@@ -552,9 +555,21 @@ class App(ctk.CTk):
         threading.Thread(target=work, daemon=True).start()
 
     def diag_done(self, path):
-        self.status(f"Diagnostic enregistré : {path}")
+        """Prépare l'envoi par mail : contenu dans le presse-papiers, courriel pré-rempli et fichier montré dans
+        l'Explorateur pour le glisser en pièce jointe."""
+        try:
+            self.clipboard_clear()
+            self.clipboard_append(path.read_text(encoding="utf-8"))
+        except (OSError, tk.TclError):
+            pass
+        self.status(f"Diagnostic enregistré : {path}. Envoie-le à {diag.SUPPORT_EMAIL} "
+                    "(courriel préparé, fichier à joindre, contenu aussi copié).")
         if sys.platform == "win32":
-            os.startfile(path)
+            subprocess.Popen(f'explorer /select,"{path}"')
+            try:
+                os.startfile(diag.mailto(path, __version__))
+            except OSError:
+                pass  # pas de logiciel de messagerie : le fichier et le presse-papiers suffisent
 
     # --- outils ---
     def status(self, text, error=False):
