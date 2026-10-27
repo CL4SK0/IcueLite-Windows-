@@ -61,10 +61,33 @@ def parse_version(text):
     return tuple(parts + [0] * (3 - len(parts)))
 
 
+def ssl_context():
+    """Contexte HTTPS : vérification par Windows lui-même (truststore), qui télécharge au besoin les certificats
+    racines manquants et accepte ceux qu'ajoute un antivirus ; à défaut, les racines de certifi en plus de
+    celles du magasin Windows (Python seul ne voit que les racines déjà présentes, d'où des « certificat refusé »)."""
+    import ssl
+    try:
+        import truststore
+        return truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    except ImportError:
+        pass
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except (ImportError, OSError):
+        pass
+    return ctx
+
+
+def urlopen(req, timeout=TIMEOUT):
+    return urllib.request.urlopen(req, timeout=timeout, context=ssl_context())
+
+
 def _get(url):
     req = urllib.request.Request(url, headers={"Accept": "application/vnd.github+json",
                                                "User-Agent": f"IcueLite/{__version__}"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+    with urlopen(req) as resp:
         return resp.read()
 
 
@@ -78,7 +101,7 @@ def _latest_release(name):
     except (OSError, ValueError):
         req = urllib.request.Request(f"https://github.com/{name}/releases/latest",
                                      headers={"User-Agent": f"IcueLite/{__version__}"})
-        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+        with urlopen(req) as resp:
             tag = resp.geturl().rstrip("/").rsplit("/", 1)[-1]
         if "tag" not in resp.geturl():
             raise OSError("aucune version publiée trouvée")
@@ -118,7 +141,7 @@ def check():
 
 def download(url, dest, progress=None):
     req = urllib.request.Request(url, headers={"User-Agent": f"IcueLite/{__version__}"})
-    with urllib.request.urlopen(req, timeout=TIMEOUT) as resp, open(dest, "wb") as out:
+    with urlopen(req) as resp, open(dest, "wb") as out:
         total = int(resp.headers.get("Content-Length") or 0)
         done = 0
         while chunk := resp.read(256 * 1024):

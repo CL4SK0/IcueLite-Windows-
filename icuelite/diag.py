@@ -95,13 +95,14 @@ def send(text, version):
     """Envoie le rapport par courriel. Lève OSError (avec la raison) si l'envoi n'a pas abouti."""
     import socket
     import urllib.request
+    from .updater import urlopen
     payload = {"_subject": f"IcueLite {version} - diagnostic de {socket.gethostname()}",
                "_template": "box", "_captcha": "false",
                "appareil": socket.gethostname(), "version": version, "diagnostic": text}
     req = urllib.request.Request(SEND_URL, data=json.dumps(payload).encode("utf-8"),
                                  headers={"Content-Type": "application/json", "Accept": "application/json",
                                           "User-Agent": f"IcueLite/{version}"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urlopen(req, timeout=30) as resp:
         answer = json.loads(resp.read() or b"{}")
     if str(answer.get("success")).lower() != "true":
         raise OSError(answer.get("message") or "envoi refusé")
