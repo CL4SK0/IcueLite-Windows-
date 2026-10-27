@@ -1,7 +1,7 @@
 """Pilotes des appareils Corsair : un par famille de protocole."""
 
 from .base import DriverError, pick_interface
-from .bragi import K100, Vanguard
+from .bragi import K100, Vanguard, VirtuosoXT
 from .hydro import Hydro
 from .legacy import Ironclaw
 from .link import LinkHub
@@ -13,6 +13,7 @@ DRIVERS = {
     "vanguard": (Vanguard, (0xFF42,), 64),
     "link": (LinkHub, (0xFF42,), 64),
     "h150i": (Hydro, (0xFF00,), 64),
+    "virtuoso": (VirtuosoXT, (0xFF42,), 64),
 }
 
 

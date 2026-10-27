@@ -335,6 +335,31 @@ class App(ctk.CTk):
             seg.pack(anchor="w", padx=16, pady=(0, 14))
         if driver.fans or driver.sensors:
             self.fan_panel(spec, driver, s, row)
+            row += 1
+        if driver.options:
+            self.options_panel(spec, driver, s, row)
+
+    def options_panel(self, spec, driver, s, row):
+        box = self.card_frame(row)
+        label(box, "Autres réglages", 15, bold=True).pack(anchor="w", padx=16, pady=(14, 6))
+        for name, title, choices, help_text in driver.options:
+            line = ctk.CTkFrame(box, fg_color="transparent")
+            line.pack(anchor="w", fill="x", padx=16, pady=(4, 0))
+            label(line, title, 12, t.MUTED, width=170, anchor="w").pack(side="left")
+
+            def chosen(value, name=name, title=title):
+                s["options"][name] = value
+                self.ctrl.save(spec.key, f"opt:{name}")
+                self.ctrl.submit(spec.key, "set_option", name, value, label=f"{title} : {value.lower()}")
+            seg = ctk.CTkSegmentedButton(line, values=list(choices), selected_color=t.ACCENT,
+                                         selected_hover_color=t.ACCENT_HOVER, font=ctk.CTkFont(t.FONT, 12),
+                                         command=chosen)
+            if s["options"].get(name) in choices:
+                seg.set(s["options"][name])
+            seg.pack(side="left")
+            label(box, help_text, 11, t.FAINT, anchor="w", justify="left", wraplength=500).pack(
+                anchor="w", padx=16 + 170, pady=(2, 4))
+        ctk.CTkFrame(box, fg_color="transparent", height=8).pack()
 
     def dpi_panel(self, spec, driver, s, row):
         box = self.card_frame(row)

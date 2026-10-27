@@ -42,12 +42,12 @@ Si un réglage ne prend pas : quitte iCUE, essaie le réglage dans IcueLite, pui
 
 | Appareil | Liaison | Prise en charge |
 |---|---|---|
-| Ironclaw RGB | USB | éclairage (logo, molette, avant), DPI, fréquence |
-| K100 RGB OPX | USB | éclairage uni et luminosité, fréquence (à vérifier) |
+| Ironclaw RGB | USB | éclairage (logo, molette, avant), DPI, fréquence, prédiction, hauteur de levée |
+| K100 RGB OPX | USB | éclairage uni et luminosité, luminosité embarquée, fréquence (à vérifier) |
 | Vanguard Pro 96 Hall Effect | USB | éclairage uni et luminosité, fréquence (à vérifier) ; Hall Effect, écran et molette à venir |
 | iCUE LINK 5000T LX RGB | hub iCUE LINK | vitesse des ventilateurs, régimes, températures (à vérifier) ; éclairage à venir |
-| Virtuoso RGB Wireless XT | dongle ou câble USB | à venir |
-| iCUE H150i RGB Elite | câble USB interne de la pompe | éclairage de la pompe, vitesse des ventilateurs, mode de pompe, régimes et température du liquide (à vérifier) |
+| Virtuoso RGB Wireless XT | câble USB | firmware et luminosité (à vérifier) ; le reste à venir |
+| iCUE H150i RGB Elite | câble USB interne de la pompe | éclairage de la pompe, vitesse des ventilateurs, mode de pompe, courbe automatique, régimes et température du liquide (à vérifier) |
 | AX1600i | Corsair Link USB | détectée ; réglages et mesures à venir |
 | Nautilus 360 RS ARGB | carte mère | éclairage seulement, via la carte mère |
 | Vengeance DDR5 | carte mère (SMBus) | détectée (référence, vitesse) ; rien à piloter sur la version sans RGB |

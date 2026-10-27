@@ -170,3 +170,28 @@ class ReconnectTest(unittest.TestCase):
             base.time.sleep = sleep
         self.assertIs(d.transport, fresh)
         self.assertEqual(d.interface["path"], "b")
+
+
+class OptionsTest(unittest.TestCase):
+    def test_ironclaw_options(self):
+        t = FakeTransport()
+        d = legacy.Ironclaw(t)
+        d.set_option("snap", "Activée")
+        d.set_option("lift", "Haute")
+        self.assertEqual(t.sent[0][1:6], bytes([0x07, 0x13, 0x04, 0x00, 0x01]))
+        self.assertEqual(t.sent[1][1:6], bytes([0x07, 0x13, 0x03, 0x00, 0x04]))
+
+    def test_bragi_brightness_and_virtuoso_size(self):
+        ack = bytes([0x00, 0x00, 0x01, 0x00]) + bytes(61)
+        t = FakeTransport(64, [ack])
+        d = bragi.VirtuosoXT(t)
+        self.assertEqual(d.size, 63)
+        d.set_option("brightness", "50 %")
+        self.assertEqual(t.sent[0][:7], bytes([0x00, 0x08, 0x01, 0x02, 0x00, 0xF4, 0x01]))
+
+    def test_hydro_curve(self):
+        t = FakeTransport()
+        d = hydro.Hydro(t)
+        d.set_option("curve", "Performance")
+        data = t.sent[0][4:]
+        self.assertEqual(data[hydro.FAN_PROFILE[0] + 1], hydro.byte_of(45))

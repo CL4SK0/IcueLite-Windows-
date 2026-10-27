@@ -30,6 +30,9 @@ MODE_PROFILE, MODE_FIXED = 0x00, 0x02
 MIN_DUTY = 25
 # courbe « automatique » (température du liquide en °C, vitesse en %), proche de celle d'origine
 AUTO_CURVE = [(20, 30), (25, 35), (30, 45), (33, 60), (36, 80), (40, 100), (60, 100)]
+CURVES = {"Silencieuse": [(20, 25), (28, 25), (32, 35), (36, 50), (40, 70), (45, 100), (60, 100)],
+          "Équilibrée": AUTO_CURVE,
+          "Performance": [(20, 45), (25, 50), (28, 60), (31, 75), (34, 90), (37, 100), (60, 100)]}
 PUMP_MODES = {"Silencieux": 0, "Équilibré": 1, "Performance": 2}
 
 
@@ -64,16 +67,16 @@ def byte_of(percent):
     return round(max(0, min(100, percent)) * 255 / 100)
 
 
-def cooling_data(pump_mode, fans):
-    """fans : [(mode, vitesse en %)] pour les emplacements 1 et 2 du paquet."""
+def cooling_data(pump_mode, fans, curve=AUTO_CURVE):
+    """fans : [(mode, vitesse en %)] pour les emplacements 1 et 2 du paquet ; curve : courbe automatique."""
     data = bytearray(SIZE - 4 - 1)
     data[0:2] = b"\x00\x03"
     data[PUMP_MODE] = pump_mode
-    data[PROFILE_LENGTH] = len(AUTO_CURVE)
+    data[PROFILE_LENGTH] = len(curve)
     for slot, (mode, duty) in enumerate(fans[:2]):
         data[FAN_MODE[slot]] = mode
         data[FAN_DUTY[slot]] = byte_of(duty or 0)
-        for i, (temp, pct) in enumerate(AUTO_CURVE):
+        for i, (temp, pct) in enumerate(curve):
             data[FAN_PROFILE[slot] + 2 * i] = temp
             data[FAN_PROFILE[slot] + 2 * i + 1] = byte_of(pct)
     return bytes(data)
@@ -102,12 +105,15 @@ class Hydro(Driver):
     fan_count = 3
     pump_modes = tuple(PUMP_MODES)
     min_duty = MIN_DUTY
+    options = (("curve", "Courbe automatique", tuple(CURVES),
+                "Vitesse des ventilateurs en mode Automatique, selon la température du liquide."),)
 
     def __init__(self, transport, interface=None):
         super().__init__(transport, interface)
         self.sequence = itertools.cycle(range(1, 32))
         self.duty = None          # None = courbe automatique
         self.pump = PUMP_MODES["Équilibré"]
+        self.curve = AUTO_CURVE
 
     def exchange(self, feature, command, data=b""):
         self.flush()
@@ -136,9 +142,9 @@ class Hydro(Driver):
 
     def send_cooling(self):
         fan = (MODE_PROFILE, 0) if self.duty is None else (MODE_FIXED, self.duty)
-        self.exchange(FEATURE_COOLING, CMD_SET_COOLING, cooling_data(self.pump, [fan, fan]))
+        self.exchange(FEATURE_COOLING, CMD_SET_COOLING, cooling_data(self.pump, [fan, fan], self.curve))
         if self.fan_count > 2:
-            self.exchange(FEATURE_COOLING2, CMD_SET_COOLING, cooling_data(self.pump, [fan, fan]))
+            self.exchange(FEATURE_COOLING2, CMD_SET_COOLING, cooling_data(self.pump, [fan, fan], self.curve))
 
     def set_fan_duty(self, percent):
         """percent : vitesse fixe en %, ou None pour la courbe automatique selon la température du liquide."""
@@ -150,6 +156,13 @@ class Hydro(Driver):
             raise DriverError(f"mode de pompe inconnu : {name}")
         self.pump = PUMP_MODES[name]
         self.send_cooling()
+
+    def set_option(self, name, value):
+        if name == "curve" and value in CURVES:
+            self.curve = CURVES[value]
+            self.send_cooling()
+        else:
+            super().set_option(name, value)
 
     def set_colors(self, colors, brightness=100):
         color = colors.get("Pompe", (255, 255, 255)) or (0, 0, 0)

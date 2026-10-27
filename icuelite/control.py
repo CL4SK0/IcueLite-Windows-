@@ -20,6 +20,7 @@ DEFAULTS = {
     "poll": 1000,
     "fan": None,           # None = le hub gère, sinon consigne en %
     "pump": None,          # mode de pompe (nom), None = celui de l'appareil
+    "options": {},         # autres réglages : nom -> choix (voir Driver.options)
 }
 
 
@@ -145,6 +146,10 @@ class Controller:
             self.submit(key, "set_poll_rate", s["poll"])
         if driver.pump_modes and "pump" in touched and s["pump"] in driver.pump_modes:
             self.submit(key, "set_pump_mode", s["pump"])
+        for name, _label, choices, _help in driver.options:
+            value = s["options"].get(name)
+            if f"opt:{name}" in touched and value in choices:
+                self.submit(key, "set_option", name, value)
         if driver.fans and "fan" in touched and s["fan"] is not None:
             self.submit(key, "set_fan_duty", s["fan"])
 

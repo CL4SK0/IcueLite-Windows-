@@ -53,15 +53,22 @@ def write_resource(size, handle, payload):
     return packets
 
 
+LEVELS = {"Éteint": 0, "25 %": 250, "50 %": 500, "75 %": 750, "100 %": 1000}
+BRIGHTNESS_OPTION = ("brightness", "Luminosité de l'appareil", tuple(LEVELS),
+                     "Réglage gardé par l'appareil lui-même (comme dans les réglages d'iCUE), "
+                     "sans changer ses couleurs.")
+
+
 class BragiKeyboard(Driver):
     LED_COUNT = 0          # nombre de LED du tableau de couleurs de l'appareil
     zones = ("Touches",)
     brightness = True
     poll_rates = (125, 250, 500, 1000)
+    options = (BRIGHTNESS_OPTION,)
 
     def __init__(self, transport, interface=None):
         super().__init__(transport, interface)
-        self.size = max(64, (getattr(transport, "output_len", 0) or 65) - 1)
+        self.size = (getattr(transport, "output_len", 0) or 65) - 1
         self.lighting_open = False
 
     def command(self, packet, wait=True):
@@ -112,6 +119,14 @@ class BragiKeyboard(Driver):
         # le clavier se reconnecte aussitôt à la nouvelle fréquence : l'envoi suivant le rouvrira
         self.command(set_property(self.size, PROP_POLL, POLL_CODES[hz], width=1))
 
+    def set_option(self, name, value):
+        if name == "brightness" and value in LEVELS:
+            reply = self.command(set_property(self.size, PROP_BRIGHTNESS, LEVELS[value]))
+            if len(reply) > 2 and reply[2] != 0x00:
+                raise DriverError(f"refusé par l'appareil (statut {reply[2]:02x})")
+        else:
+            super().set_option(name, value)
+
     def after_reconnect(self):
         self.lighting_open = False
 
@@ -135,3 +150,12 @@ class Vanguard(BragiKeyboard):
     experimental = True
     LED_COUNT = 128
     poll_rates = (125, 250, 500, 1000, 2000, 4000, 8000)
+
+
+class VirtuosoXT(BragiKeyboard):
+    """Casque Virtuoso RGB Wireless XT branché par câble. Même famille de protocole supposée que le K100
+    (interface FF42, paquets de 64 octets) : on commence par la lecture du firmware et la luminosité."""
+    experimental = True
+    zones = ()
+    brightness = False
+    poll_rates = ()

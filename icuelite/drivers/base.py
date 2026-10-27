@@ -43,6 +43,7 @@ class Driver:
     min_duty = 20          # vitesse fixe minimale, en %
     pump_modes = ()        # modes de pompe proposés (watercooling)
     sensors = False        # régimes et températures à lire
+    options = ()           # autres réglages à choix : (nom, libellé, choix, explication)
 
     def __init__(self, transport, interface=None):
         self.transport = transport
@@ -137,6 +138,9 @@ class Driver:
 
     def set_pump_mode(self, name):
         raise DriverError("pompe non gérée")
+
+    def set_option(self, name, value):
+        raise DriverError(f"réglage « {name} » non géré")
 
     def read_sensors(self):
         """{"fans": [(nom, tr/min)], "temps": [(nom, °C)]}."""

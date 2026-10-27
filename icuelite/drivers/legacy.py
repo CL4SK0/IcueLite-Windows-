@@ -6,6 +6,8 @@ Paquets de 64 octets précédés du report ID 0. Commandes utiles :
   07 22 n 01 [i r g b]×n   couleurs des zones d'une souris
   07 13 d0+s 00 00 x x y y DPI du palier s ; 07 13 05 00 masque des paliers actifs ; 07 13 02 00 s palier courant
   07 0a 00 00 ms           intervalle d'interrogation (1 ms = 1000 Hz)
+  07 13 04 00 0/1          correction d'angle (« prédiction » dans iCUE)
+  07 13 03 00 1-5          hauteur de levée (distance à laquelle le capteur décroche)
 """
 
 from .base import Driver, DriverError
@@ -48,6 +50,17 @@ def poll_interval(hz):
     return packet(0x07, 0x0A, 0x00, 0x00, max(1, 1000 // hz))
 
 
+LIFT = {"Minimale": 1, "Basse": 2, "Moyenne": 3, "Haute": 4, "Maximale": 5}
+
+
+def angle_snap(on):
+    return packet(0x07, 0x13, 0x04, 0x00, 0x01 if on else 0x00)
+
+
+def lift_height(level):
+    return packet(0x07, 0x13, 0x03, 0x00, level)
+
+
 def scale(color, brightness):
     if color is None:
         return (0, 0, 0)
@@ -63,6 +76,10 @@ class LegacyMouse(Driver):
     dpi_range = (100, 18000, 50)
     dpi_stage_count = 5
     poll_rates = (125, 250, 500, 1000)
+    options = (("snap", "Prédiction", ("Désactivée", "Activée"),
+                "Redresse les mouvements presque horizontaux ou verticaux."),
+               ("lift", "Hauteur de levée", tuple(LIFT),
+                "Hauteur à partir de laquelle la souris arrête de suivre quand on la soulève."))
 
     def send(self, packet):
         # La souris répond à chaque commande par un écho (07 xx …) : on le lit pour le journal du diagnostic,
@@ -107,6 +124,14 @@ class LegacyMouse(Driver):
         if hz not in self.poll_rates:
             raise DriverError(f"fréquence {hz} Hz non prise en charge")
         self.send(poll_interval(hz))
+
+    def set_option(self, name, value):
+        if name == "snap":
+            self.send(angle_snap(value == "Activée"))
+        elif name == "lift" and value in LIFT:
+            self.send(lift_height(LIFT[value]))
+        else:
+            super().set_option(name, value)
 
     def release(self):
         if self.software_mode:
