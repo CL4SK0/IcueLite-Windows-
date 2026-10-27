@@ -87,9 +87,9 @@ def report(extra=None):
 
 SUPPORT_EMAIL = "erwan.narbone@gmail.com"
 # Envoi du rapport par courriel sans mot de passe dans l'exe : un petit script Google Apps Script déployé par
-# Erwan (tools/diag_mail.gs) reçoit le rapport et se l'envoie. Tant que son adresse n'est pas renseignée,
-# on passe par FormSubmit (le premier envoi y déclenche un courriel d'activation).
-SCRIPT_URL = ""
+# Erwan (tools/diag_mail.gs) reçoit le rapport et se l'envoie. Sans adresse de script, on passerait par
+# FormSubmit (le premier envoi y déclenche un courriel d'activation).
+SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbkr527gGpGfJ-F4mtVaElYIt0xvkdddR74EcoAEKP0pumlIHG3UV4faVblF6BGv8/exec"
 FORMSUBMIT_URL = f"https://formsubmit.co/ajax/{SUPPORT_EMAIL}"
 PAGE = "https://github.com/CL4SK0/IcueLite-Windows-"
 
@@ -109,7 +109,11 @@ def send(text, version):
     req = urllib.request.Request(SCRIPT_URL or FORMSUBMIT_URL, data=json.dumps(payload).encode("utf-8"),
                                  headers=headers)
     with urlopen(req, timeout=45) as resp:
-        answer = json.loads(resp.read() or b"{}")
+        raw = resp.read()
+    try:
+        answer = json.loads(raw or b"{}")
+    except ValueError:
+        raise OSError("réponse inattendue du script d'envoi") from None
     if str(answer.get("success")).lower() != "true":
         raise OSError(answer.get("message") or "envoi refusé")
 
