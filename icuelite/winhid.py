@@ -18,6 +18,7 @@ WAIT_OBJECT_0 = 0
 ERROR_IO_PENDING = 997
 DIGCF_PRESENT = 0x02
 DIGCF_DEVICEINTERFACE = 0x10
+DIGCF_ALLCLASSES = 0x04
 ERROR_INSUFFICIENT_BUFFER = 122
 INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
 
@@ -81,6 +82,16 @@ SetupDiEnumDeviceInterfaces = _proto(_setupapi, "SetupDiEnumDeviceInterfaces", w
 SetupDiGetDeviceInterfaceDetailW = _proto(_setupapi, "SetupDiGetDeviceInterfaceDetailW", wintypes.BOOL,
                                           HANDLE, ctypes.POINTER(SP_DEVICE_INTERFACE_DATA), PVOID,
                                           wintypes.DWORD, ctypes.POINTER(wintypes.DWORD), PVOID)
+class SP_DEVINFO_DATA(ctypes.Structure):
+    _fields_ = [("cbSize", wintypes.DWORD), ("ClassGuid", GUID), ("DevInst", wintypes.DWORD),
+                ("Reserved", ctypes.c_size_t)]
+
+
+SetupDiEnumDeviceInfo = _proto(_setupapi, "SetupDiEnumDeviceInfo", wintypes.BOOL, HANDLE, wintypes.DWORD,
+                               ctypes.POINTER(SP_DEVINFO_DATA))
+SetupDiGetDeviceInstanceIdW = _proto(_setupapi, "SetupDiGetDeviceInstanceIdW", wintypes.BOOL, HANDLE,
+                                     ctypes.POINTER(SP_DEVINFO_DATA), wintypes.LPWSTR, wintypes.DWORD,
+                                     ctypes.POINTER(wintypes.DWORD))
 SetupDiDestroyDeviceInfoList = _proto(_setupapi, "SetupDiDestroyDeviceInfoList", wintypes.BOOL, HANDLE)
 
 CreateFileW = _proto(_kernel32, "CreateFileW", HANDLE, wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD,
@@ -153,6 +164,34 @@ def _interface_paths():
             yield ctypes.wstring_at(ctypes.addressof(buf) + 4)
     finally:
         SetupDiDestroyDeviceInfoList(info)
+
+
+def usb_devices(vendor_id):
+    """Identifiants des appareils USB présents de ce fabricant, HID ou non : [(PID, identifiant d'instance)].
+
+    Sert pour les appareils qui ne passent pas par le pilote HID de Windows (l'AX1600i, par exemple,
+    utilise le pilote USBXpress de Corsair)."""
+    info = SetupDiGetClassDevsW(None, "USB", None, DIGCF_PRESENT | DIGCF_ALLCLASSES)
+    if info is None or info == INVALID_HANDLE_VALUE:
+        raise _error("liste des périphériques USB")
+    found = []
+    try:
+        index = 0
+        while True:
+            data = SP_DEVINFO_DATA()
+            data.cbSize = ctypes.sizeof(SP_DEVINFO_DATA)
+            if not SetupDiEnumDeviceInfo(info, index, ctypes.byref(data)):
+                break
+            index += 1
+            buf = ctypes.create_unicode_buffer(512)
+            if not SetupDiGetDeviceInstanceIdW(info, ctypes.byref(data), buf, len(buf), None):
+                continue
+            match = re.search(r"VID_([0-9A-F]{4})&PID_([0-9A-F]{4})", buf.value, re.IGNORECASE)
+            if match and int(match.group(1), 16) == vendor_id:
+                found.append((int(match.group(2), 16), buf.value))
+    finally:
+        SetupDiDestroyDeviceInfoList(info)
+    return found
 
 
 def enumerate(vendor_id=0, product_id=0):

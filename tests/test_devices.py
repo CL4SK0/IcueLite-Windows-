@@ -30,3 +30,14 @@ class DevicesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OtherDetectionTest(unittest.TestCase):
+    def test_psu_and_memory(self):
+        mods = [{"part": "CMK64GX5M2B6000Z40", "capacity_gb": 32, "speed": 4800, "rated": 6000, "cl": 40}] * 2
+        found, _ = devices.detect(raw=[hid(0x0C37, "H150iELITE")], usb=[(0x1C11, "USB\\VID_1B1C&PID_1C11\\X")],
+                                  modules=mods)
+        self.assertEqual(set(found), {"h150i", "ax1600i", "vengeance"})
+        self.assertIn("EXPO", found["vengeance"].note)
+        found, _ = devices.detect(raw=[], usb=[], modules=[{"part": "F5-6000J3038", "capacity_gb": 16}])
+        self.assertEqual(found, {})

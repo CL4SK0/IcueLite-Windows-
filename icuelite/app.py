@@ -9,7 +9,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import ImageTk
 
-from . import __version__, config, diag, instance, logo, render, updater
+from . import __version__, config, diag, instance, logo, memory, render, updater
 from . import theme as t
 from .control import Controller
 from .devices import CATALOG, MOTHERBOARD, NOTHING, detect
@@ -69,6 +69,7 @@ class App(ctk.CTk):
         self.ctrl = Controller(self.cfg, notify=lambda key, text, error=False:
                                self.from_thread(self.on_driver_message, key, text, error))
         self.sensor_labels = None
+        self.memory_modules = None  # barrettes lues par Windows, en arrière-plan (une seconde environ)
 
         self.title("IcueLite")
         self.geometry(self.cfg.get("geometry", "1120x720"))
@@ -83,6 +84,7 @@ class App(ctk.CTk):
         self.build_main()
 
         self.refresh_devices()
+        threading.Thread(target=lambda: self.from_thread(self.memory_read, memory.modules()), daemon=True).start()
         self.after(100, self.run_thread_calls)
         self.after(700, self.watch_show_requests)
         self.after(1500, self.check_updates)
@@ -154,18 +156,33 @@ class App(ctk.CTk):
             child.destroy()
 
     # --- appareils ---
+    def memory_read(self, modules):
+        self.memory_modules = modules
+        self.refresh_devices()
+
+    def shown_specs(self):
+        """Appareils à afficher : ceux qui sont détectés, ou tout le catalogue si on l'a demandé."""
+        if self.cfg.get("show_all"):
+            return list(CATALOG)
+        return [spec for spec in CATALOG if spec.key in self.found]
+
+    def toggle_show_all(self):
+        self.cfg["show_all"] = not self.cfg.get("show_all")
+        config.save(self.cfg)
+        self.refresh_devices()
+
     def refresh_devices(self):
-        self.found, self.unknown = detect()
+        self.found, self.unknown = detect(modules=self.memory_modules)
         self.ctrl.attach(self.found)
         for child in self.device_list.winfo_children():
             child.destroy()
-        for spec in CATALOG:
+        for spec in self.shown_specs():
             text, color = status_of(spec, self.found)
             self.device_row(spec, text, color).pack(fill="x", padx=4, pady=1)
         connected = sum(1 for s in CATALOG if s.key in self.found)
         self.status(f"{connected} appareil(s) Corsair branché(s) reconnu(s)."
                     + (f" {len(self.unknown)} interface(s) Corsair inconnue(s) : lance le diagnostic." if self.unknown else ""))
-        if self.current:
+        if self.current and (self.current.key in self.found or self.cfg.get("show_all")):
             self.show_device(self.current)
         else:
             self.show_home()
@@ -187,12 +204,20 @@ class App(ctk.CTk):
         self.current = None
         self.clear()
         label(self.content, "Tableau de bord", 24, bold=True).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
-        label(self.content, "Tes appareils Corsair et ce qu'IcueLite peut en faire.", 13, t.MUTED).grid(
-            row=1, column=0, columnspan=2, sticky="w", pady=(0, 16))
-        for i, spec in enumerate(CATALOG):
+        specs = self.shown_specs()
+        intro = ("Tous les appareils pris en charge par IcueLite." if self.cfg.get("show_all")
+                 else "Tes appareils Corsair branchés et ce qu'IcueLite peut en faire.")
+        label(self.content, intro, 13, t.MUTED).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 16))
+        if not specs:
+            label(self.content, "Aucun appareil Corsair détecté. Branche-les, quitte iCUE, puis « Actualiser ».",
+                  13, t.FAINT).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=(0, 8))
+        for i, spec in enumerate(specs):
             self.device_card(spec).grid(row=2 + i // 2, column=i % 2, sticky="nsew", padx=6, pady=6)
-        button(self.content, "Actualiser", self.refresh_devices, width=120).grid(
-            row=3 + len(CATALOG) // 2, column=0, sticky="w", padx=6, pady=(12, 0))
+        actions = ctk.CTkFrame(self.content, fg_color="transparent")
+        actions.grid(row=3 + len(specs) // 2, column=0, columnspan=2, sticky="w", padx=6, pady=(12, 0))
+        button(actions, "Actualiser", self.refresh_devices, width=120).pack(side="left")
+        button(actions, "Seulement les appareils détectés" if self.cfg.get("show_all")
+               else "Voir tous les appareils pris en charge", self.toggle_show_all, width=260).pack(side="left", padx=8)
 
     def device_card(self, spec):
         card = ctk.CTkFrame(self.content, fg_color=t.CARD, corner_radius=10, border_width=1, border_color=t.BORDER)
@@ -225,18 +250,22 @@ class App(ctk.CTk):
         lines = [("Référence", spec.ref), ("Liaison", spec.link)]
         detected = self.found.get(spec.key)
         if detected:
-            lines.append(("Identifiant USB", f"1B1C:{detected.pid:04X}, {len(detected.interfaces)} interface(s)"))
+            if detected.interfaces:
+                lines.append(("Identifiant USB", f"1B1C:{detected.pid:04X}, {len(detected.interfaces)} interface(s)"))
+            lines += detected.details
         for r, (k, v) in enumerate(lines):
             label(info, k, 12, t.MUTED).grid(row=r, column=0, sticky="nw", padx=(16, 12), pady=(12 if r == 0 else 4, 4))
             label(info, v, 13, anchor="w", justify="left", wraplength=560).grid(
                 row=r, column=1, sticky="w", pady=(12 if r == 0 else 4, 4))
-        if spec.note:
-            label(info, spec.note, 12, t.WARNING, anchor="w", justify="left", wraplength=640).grid(
+        note = detected.note if detected and detected.note else spec.note
+        if note:
+            label(info, note, 12, t.WARNING, anchor="w", justify="left", wraplength=640).grid(
                 row=len(lines), column=0, columnspan=2, sticky="w", padx=16, pady=(4, 0))
         ctk.CTkFrame(info, fg_color="transparent", height=10).grid(row=len(lines) + 1, column=0)
 
         driver = self.ctrl.drivers.get(spec.key)
         self.sensor_labels = None
+        self.memory_modules = None  # barrettes lues par Windows, en arrière-plan (une seconde environ)
         if driver is not None:
             self.settings_panels(spec, driver, row=5)
             if driver.experimental:
@@ -367,7 +396,8 @@ class App(ctk.CTk):
             line = ctk.CTkFrame(box, fg_color="transparent")
             line.pack(anchor="w", fill="x", padx=16)
             shown = label(line, "", 12, width=60)
-            slider = ctk.CTkSlider(line, from_=20, to=100, number_of_steps=16, width=320, button_color=t.ACCENT,
+            slider = ctk.CTkSlider(line, from_=driver.min_duty, to=100, number_of_steps=(100 - driver.min_duty) // 5,
+                                   width=320, button_color=t.ACCENT,
                                    button_hover_color=t.ACCENT_HOVER, progress_color=t.ACCENT)
             slider.set(s["fan"] or 50)
 
@@ -405,8 +435,23 @@ class App(ctk.CTk):
             slider.pack(side="left", padx=12)
             shown.configure(text="" if s["fan"] is None else f"{s['fan']} %")
             shown.pack(side="left")
-            label(box, "Automatique : le hub suit sa propre courbe. Vitesse fixe : jamais sous 20 %.", 12, t.FAINT).pack(
+            auto = ("la vitesse suit la température du liquide" if driver.pump_modes
+                    else "le hub suit sa propre courbe")
+            label(box, f"Automatique : {auto}. Vitesse fixe : jamais sous {driver.min_duty} %.", 12, t.FAINT).pack(
                 anchor="w", padx=16, pady=(4, 0))
+        if driver.pump_modes:
+            line = ctk.CTkFrame(box, fg_color="transparent")
+            line.pack(anchor="w", fill="x", padx=16, pady=(10, 0))
+            label(line, "Pompe", 12, t.MUTED, width=80, anchor="w").pack(side="left")
+
+            def pump(value):
+                s["pump"] = value
+                self.ctrl.save(spec.key, "pump")
+                self.ctrl.submit(spec.key, "set_pump_mode", value, label=f"Pompe en mode {value.lower()}")
+            seg = ctk.CTkSegmentedButton(line, values=list(driver.pump_modes), selected_color=t.ACCENT,
+                                         selected_hover_color=t.ACCENT_HOVER, font=ctk.CTkFont(t.FONT, 12), command=pump)
+            seg.set(s["pump"] or driver.pump_modes[1])
+            seg.pack(side="left")
         if driver.sensors:
             self.sensor_labels = (spec.key, label(box, "Lecture des régimes…", 13, t.MUTED, anchor="w", justify="left"))
             self.sensor_labels[1].pack(anchor="w", padx=16, pady=(8, 14))

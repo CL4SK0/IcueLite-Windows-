@@ -1,6 +1,6 @@
 import unittest
 
-from icuelite.drivers import bragi, legacy, link
+from icuelite.drivers import bragi, hydro, legacy, link
 from icuelite.drivers.base import DriverError, pick_interface
 
 
@@ -97,3 +97,44 @@ class InterfaceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HydroTest(unittest.TestCase):
+    def reply(self, body):
+        r = bytearray(64)
+        r[:len(body)] = body
+        r[-1] = hydro.crc8(r[1:-1])
+        return bytes(r)
+
+    def test_crc_and_packet(self):
+        self.assertEqual(hydro.crc8(b"123456789"), 0xF4)  # valeur de contrôle du CRC-8 SMBus
+        p = hydro.packet(3, hydro.FEATURE_COOLING, hydro.CMD_STATUS)
+        self.assertEqual(p[:4], bytes([0, 0x3F, 3 << 3, 0xFF]))
+        self.assertEqual(hydro.crc8(p[2:]), 0)
+        light = hydro.packet(1, None, 0b101, b"\x01\x02")
+        self.assertEqual(light[2:5], bytes([(1 << 3) | 0b101, 1, 2]))
+
+    def test_status(self):
+        body = bytearray(31)
+        body[2], body[3] = 0x12, 7
+        body[7], body[8] = 128, 30
+        body[15:17] = (900).to_bytes(2, "little")
+        body[22:24] = (950).to_bytes(2, "little")
+        body[29:31] = (2400).to_bytes(2, "little")
+        st = hydro.parse_status(self.reply(body))
+        self.assertEqual(st["firmware"], "1.2.7")
+        self.assertAlmostEqual(st["liquid"], 30.5, places=1)
+        self.assertEqual((st["fans"], st["pump"]), ([900, 950], 2400))
+        self.assertIsNone(hydro.parse_status(bytes(64)[:-1] + b"\x01"))
+
+    def test_fixed_duty_and_floor(self):
+        t = FakeTransport()
+        d = hydro.Hydro(t)
+        d.set_fan_duty(10)
+        self.assertEqual(d.duty, hydro.MIN_DUTY)
+        data = t.sent[0][4:]
+        self.assertEqual(t.sent[0][3], hydro.CMD_SET_COOLING)
+        self.assertEqual(data[hydro.FAN_MODE[0]], hydro.MODE_FIXED)
+        self.assertEqual(data[hydro.FAN_DUTY[1]], round(25 * 255 / 100))
+        self.assertEqual(data[hydro.PUMP_MODE], 1)
+        self.assertEqual(t.sent[1][2] & 0b111, hydro.FEATURE_COOLING2)  # 3e ventilateur

@@ -19,6 +19,7 @@ DEFAULTS = {
     "dpi_active": 1,
     "poll": 1000,
     "fan": None,           # None = le hub gère, sinon consigne en %
+    "pump": None,          # mode de pompe (nom), None = celui de l'appareil
 }
 
 
@@ -121,6 +122,8 @@ class Controller:
             self.submit(key, "set_dpi", list(s["dpi"]), s["dpi_active"])
         if driver.poll_rates and "poll" in touched and s["poll"] in driver.poll_rates:
             self.submit(key, "set_poll_rate", s["poll"])
+        if driver.pump_modes and "pump" in touched and s["pump"] in driver.pump_modes:
+            self.submit(key, "set_pump_mode", s["pump"])
         if driver.fans and "fan" in touched and s["fan"] is not None:
             self.submit(key, "set_fan_duty", s["fan"])
 

@@ -26,6 +26,7 @@ class Spec:
     support: str = USB
     pids: tuple = ()
     keywords: tuple = ()
+    usb_pids: tuple = ()  # appareils vus par Windows hors pilote HID (pilote constructeur)
     features: tuple = ()
     note: str = ""
 
@@ -50,16 +51,19 @@ CATALOG = [
          "iCUE LINK System Hub (USB interne) : 3 ventilateurs LX120 RGB + bandes Aurora",
          pids=(0x0C3F,), keywords=("LINK SYSTEM HUB", "ICUE LINK"),
          features=("Vitesse des ventilateurs et courbes", "Éclairage ventilateurs et bandes", "Sondes")),
-    Spec("ax1600i", "AX1600i", "psu", "CP-9020087-EU", "Corsair Link (USB interne)",
-         pids=(0x1C11,), keywords=("AX1600I", "AXI"),
+    Spec("h150i", "iCUE H150i RGB Elite", "cooler", "Watercooling 360 mm", "Câble USB interne de la pompe",
+         pids=(0x0C37, 0x0C41), keywords=("H150I",),
+         features=("Vitesse des ventilateurs", "Mode de la pompe", "Température du liquide", "Éclairage de la pompe")),
+    Spec("ax1600i", "AX1600i", "psu", "CP-9020087-EU", "Câble Corsair Link (USB interne, pilote USBXpress de Corsair)",
+         usb_pids=(0x1C11,), keywords=("AX1600I",),
          features=("Puissance, tensions, courants", "Températures et rendement", "Mode ventilateur", "OCP mono/multi-rail")),
     Spec("nautilus", "Nautilus 360 RS ARGB", "cooler", "Noir",
          "Prises PWM et ARGB 5 V de la carte mère", support=MOTHERBOARD,
          features=("Éclairage via le contrôleur RGB de la carte mère",),
          note="Pas d'USB : vitesses de la pompe et des ventilateurs dans le BIOS."),
-    Spec("vengeance", "Vengeance DDR5 64 Go", "memory", "CMK64GX5M2B6000Z30 (à confirmer)",
-         "Bus SMBus de la carte mère (2 × 32 Go, 6000 MT/s)", support=NOTHING,
-         note="Version sans éclairage (à confirmer par le diagnostic) : rien à régler."),
+    Spec("vengeance", "Vengeance DDR5", "memory", "CMK… (sans éclairage) ou CMH… (RGB)",
+         "Bus SMBus de la carte mère", support=NOTHING,
+         note="Version sans éclairage : rien à régler."),
 ]
 
 BY_KEY = {spec.key: spec for spec in CATALOG}
@@ -69,6 +73,8 @@ BY_KEY = {spec.key: spec for spec in CATALOG}
 class Detected:
     spec: Spec
     interfaces: list = field(default_factory=list)
+    details: list = field(default_factory=list)  # [(libellé, valeur)] à afficher sur la fiche
+    note: str = ""
 
     @property
     def pid(self):
@@ -102,8 +108,40 @@ def match(info):
     return None
 
 
-def detect(raw=None):
-    """{clé du catalogue: Detected} pour chaque appareil branché, + liste des interfaces inconnues."""
+def usb_raw():
+    """[(PID, identifiant d'instance)] des appareils USB Corsair, HID ou non (liste vide hors Windows)."""
+    hid = backend()
+    if hid is None:
+        return []
+    try:
+        return hid.usb_devices(CORSAIR)
+    except OSError:
+        return []
+
+
+def memory_detected(modules):
+    """Detected des barrettes Corsair d'après les infos de Windows (memory.modules()), ou None."""
+    corsair = [m for m in modules if m["part"].upper().startswith("CM")]
+    if not corsair:
+        return None
+    det = Detected(BY_KEY["vengeance"])
+    total = sum(m["capacity_gb"] for m in corsair)
+    first = corsair[0]
+    rgb = first["part"].upper().startswith(("CMH", "CMG", "CMN"))
+    det.details = [("Barrettes", f"{len(corsair)} × {first['capacity_gb']} Go ({total} Go), {first['part']}"),
+                   ("Éclairage", "RGB" if rgb else "aucun (rien à régler)")]
+    if first.get("rated") and first.get("speed"):
+        det.details.append(("Vitesse", f"{first['speed']} MT/s (prévue pour {first['rated']} MT/s)"))
+        if first["speed"] < first["rated"]:
+            det.note = (f"La mémoire tourne à {first['speed']} MT/s au lieu de {first['rated']} : active le profil "
+                        "EXPO (ou XMP) dans le BIOS pour en profiter.")
+    return det
+
+
+def detect(raw=None, usb=None, modules=None):
+    """{clé du catalogue: Detected} pour chaque appareil branché, + liste des interfaces HID inconnues.
+
+    raw : interfaces HID ; usb : appareils USB hors HID ; modules : barrettes mémoire (None = pas encore lues)."""
     found, unknown = {}, []
     for info in enumerate_raw() if raw is None else raw:
         spec = match(info)
@@ -111,4 +149,11 @@ def detect(raw=None):
             unknown.append(info)
             continue
         found.setdefault(spec.key, Detected(spec)).interfaces.append(info)
+    for pid, instance in usb_raw() if usb is None else usb:
+        for spec in CATALOG:
+            if pid in spec.usb_pids and spec.key not in found:
+                found[spec.key] = Detected(spec, details=[("Identifiant USB", f"1B1C:{pid:04X} ({instance})")])
+    mem = memory_detected(modules or [])
+    if mem:
+        found["vengeance"] = mem
     return found, unknown

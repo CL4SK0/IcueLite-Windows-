@@ -40,6 +40,8 @@ class Driver:
     dpi_stage_count = 0
     poll_rates = ()        # fréquences d'interrogation possibles, en Hz
     fans = False           # vitesse des ventilateurs
+    min_duty = 20          # vitesse fixe minimale, en %
+    pump_modes = ()        # modes de pompe proposés (watercooling)
     sensors = False        # régimes et températures à lire
 
     def __init__(self, transport, interface=None):
@@ -87,6 +89,9 @@ class Driver:
 
     def set_fan_duty(self, percent):
         raise DriverError("ventilateurs non gérés")
+
+    def set_pump_mode(self, name):
+        raise DriverError("pompe non gérée")
 
     def read_sensors(self):
         """{"fans": [(nom, tr/min)], "temps": [(nom, °C)]}."""
