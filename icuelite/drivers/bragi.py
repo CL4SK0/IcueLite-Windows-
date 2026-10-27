@@ -69,7 +69,11 @@ class BragiKeyboard(Driver):
         if wait:
             self.flush()
         self.send(packet)
-        return self.receive(300) if wait else b""
+        if not wait:
+            return b""
+        data = self.receive(300)
+        # Windows renvoie le report ID en tête : on le retire (réponse : 00 cmd statut valeur…)
+        return data[1:] if len(data) > self.size else data
 
     def firmware(self):
         data = self.command(get_property(self.size, PROP_FIRMWARE))
@@ -98,7 +102,11 @@ class BragiKeyboard(Driver):
     def set_poll_rate(self, hz):
         if hz not in self.poll_rates:
             raise DriverError(f"fréquence {hz} Hz non prise en charge")
+        # le clavier se reconnecte aussitôt à la nouvelle fréquence : l'envoi suivant le rouvrira
         self.command(set_property(self.size, PROP_POLL, POLL_CODES[hz], width=1))
+
+    def after_reconnect(self):
+        self.lighting_open = False
 
     def release(self):
         if self.lighting_open:

@@ -12,9 +12,21 @@ import time
 from pathlib import Path
 
 from . import __version__
-from .devices import enumerate_raw, match
+from .devices import VIRTUAL_PIDS, enumerate_raw, match
 
 NO_WINDOW = 0x08000000
+
+
+def icue_running():
+    """True si iCUE est lancé : il reprend alors la main sur les appareils et écrase les réglages d'IcueLite."""
+    if sys.platform != "win32":
+        return False
+    try:
+        out = subprocess.run(["tasklist", "/FI", "IMAGENAME eq iCUE.exe", "/NH"], capture_output=True, text=True,
+                             timeout=15, creationflags=NO_WINDOW).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return "icue.exe" in out.lower()
 
 
 def powershell(command):
@@ -54,7 +66,7 @@ def report(extra=None):
         lines.append(f"  {info['product_id']:04x} if={info['interface_number']} page={info['usage_page']:04x} "
                      f"usage={info['usage']:04x} out/feat={info.get('output_report_length')}/"
                      f"{info.get('feature_report_length')} {info['product_string']}"
-                     f"  -> {spec.name if spec else 'inconnu'}")
+                     f"  -> {spec.name if spec else VIRTUAL_PIDS.get(info.get('product_id'), 'inconnu')}")
     if not raw:
         lines.append("  (aucune)")
     lines.append("")

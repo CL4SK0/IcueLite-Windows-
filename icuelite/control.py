@@ -86,11 +86,15 @@ class Controller:
     def _tick(self):
         for key, driver in list(self.drivers.items()):
             try:
+                driver.polling = True
                 driver.keepalive()
                 if driver.sensors:
                     self.sensors[key] = driver.read_sensors()
+                self.errors.pop(key, None)
             except (DriverError, OSError) as exc:
                 self.errors[key] = str(exc)
+            finally:
+                driver.polling = False
 
     # --- appareils ---
     def attach(self, found):
@@ -150,7 +154,8 @@ class Controller:
         lines = []
         for key, driver in self.drivers.items():
             lines.append(f"[{key}] {type(driver).__name__} interface if={driver.interface.get('interface_number')} "
-                         f"page={driver.interface.get('usage_page', 0):04x}")
+                         f"page={driver.interface.get('usage_page', 0):04x} "
+                         f"accès={getattr(driver.transport, 'access', '?')}")
             lines += [f"  {t} {way} {text}" for t, way, text in driver.log]
         for key, err in self.errors.items():
             lines.append(f"[{key}] erreur : {err}")

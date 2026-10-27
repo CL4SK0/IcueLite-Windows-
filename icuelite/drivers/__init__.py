@@ -32,7 +32,17 @@ def open_driver(detected):
         transport = winhid.Transport(info["path"])
     except OSError as exc:
         raise DriverError(f"ouverture impossible ({exc}) : iCUE est-il encore lancé ?") from exc
-    return cls(transport, info)
+
+    def reopen():
+        # après une reconnexion USB, le chemin Windows de l'interface peut changer : on la recherche
+        from ..devices import enumerate_raw
+        same = [i for i in enumerate_raw() if i.get("product_id") == info.get("product_id")]
+        fresh = pick_interface(same, pages, min_output) if same else info
+        return winhid.Transport(fresh["path"]), fresh
+
+    driver = cls(transport, info)
+    driver.reopen = reopen
+    return driver
 
 
 __all__ = ["DRIVERS", "DriverError", "has_driver", "open_driver"]

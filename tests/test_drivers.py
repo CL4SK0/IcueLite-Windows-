@@ -116,6 +116,7 @@ class HydroTest(unittest.TestCase):
 
     def test_status(self):
         body = bytearray(31)
+        body[0] = 0xFF
         body[2], body[3] = 0x12, 7
         body[7], body[8] = 128, 30
         body[15:17] = (900).to_bytes(2, "little")
@@ -126,6 +127,14 @@ class HydroTest(unittest.TestCase):
         self.assertAlmostEqual(st["liquid"], 30.5, places=1)
         self.assertEqual((st["fans"], st["pump"]), ([900, 950], 2400))
         self.assertIsNone(hydro.parse_status(bytes(64)[:-1] + b"\x01"))
+
+    def test_real_reply_with_odd_crc(self):
+        # réponse de l'H150i Elite d'un testeur (CRC différent de celui attendu)
+        head = bytes.fromhex("ff381208 00724e4e 200f02ff b80bff0d 0702ffb8 0bffee")
+        st = hydro.parse_status(head + bytes(64 - len(head)))
+        self.assertEqual(st["firmware"], "1.2.8")
+        self.assertAlmostEqual(st["liquid"], 32.3, places=1)
+        self.assertEqual(st["fans"][0], 0x070D)
 
     def test_fixed_duty_and_floor(self):
         t = FakeTransport()
@@ -138,3 +147,26 @@ class HydroTest(unittest.TestCase):
         self.assertEqual(data[hydro.FAN_DUTY[1]], round(25 * 255 / 100))
         self.assertEqual(data[hydro.PUMP_MODE], 1)
         self.assertEqual(t.sent[1][2] & 0b111, hydro.FEATURE_COOLING2)  # 3e ventilateur
+
+
+class ReconnectTest(unittest.TestCase):
+    def test_bragi_firmware_and_reconnect(self):
+        from icuelite.drivers import bragi
+
+        class Gone(FakeTransport):
+            def write(self, data):
+                raise OSError(1167, "écriture : Le périphérique n'est pas connecté. (code 1167)")
+
+        size = 1025
+        reply = bytes.fromhex("0000020001 0f3d") + bytes(size - 7)
+        fresh = FakeTransport(size, [reply])
+        d = bragi.K100(Gone(size), {"path": "a"})
+        d.reopen = lambda: (fresh, {"path": "b"})
+        import icuelite.drivers.base as base
+        sleep, base.time.sleep = base.time.sleep, lambda s: None
+        try:
+            self.assertEqual(d.firmware(), "1.15.61")
+        finally:
+            base.time.sleep = sleep
+        self.assertIs(d.transport, fresh)
+        self.assertEqual(d.interface["path"], "b")

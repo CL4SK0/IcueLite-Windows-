@@ -80,9 +80,12 @@ def cooling_data(pump_mode, fans):
 
 
 def parse_status(reply):
-    """Réponse d'état (sans report ID) -> dict, ou None si le CRC ne colle pas."""
+    """Réponse d'état (sans report ID) -> dict, ou None si ce n'en est pas une.
+
+    Le CRC des réponses ne colle pas toujours (liquidctl se contente aussi d'un avertissement, et l'H150i
+    Elite du testeur répond avec un CRC différent) : on vérifie seulement l'octet de tête."""
     reply = bytes(reply)
-    if len(reply) < 31 or crc8(reply[1:]) != 0:
+    if len(reply) < 31 or reply[0] != 0xFF:
         return None
     return {"firmware": f"{reply[2] >> 4}.{reply[2] & 0x0F}.{reply[3]}",
             "liquid": reply[8] + reply[7] / 255,
@@ -116,7 +119,7 @@ class Hydro(Driver):
     def status(self, feature=FEATURE_COOLING):
         st = parse_status(self.exchange(feature, CMD_STATUS))
         if st is None:
-            raise DriverError("réponse illisible (CRC) : iCUE tourne-t-il encore ?")
+            raise DriverError("réponse illisible : iCUE tourne-t-il encore ?")
         return st
 
     def firmware(self):

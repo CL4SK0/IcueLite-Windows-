@@ -68,6 +68,7 @@ class App(ctk.CTk):
         self.ctrl = Controller(self.cfg, notify=lambda key, text, error=False:
                                self.from_thread(self.on_driver_message, key, text, error))
         self.sensor_labels = None
+        self.icue_warning = False   # iCUE lancé à l'ouverture d'IcueLite
         self.memory_modules = None  # barrettes lues par Windows, en arrière-plan (une seconde environ)
 
         self.title("IcueLite")
@@ -84,6 +85,7 @@ class App(ctk.CTk):
 
         self.refresh_devices()
         threading.Thread(target=lambda: self.from_thread(self.memory_read, memory.modules()), daemon=True).start()
+        threading.Thread(target=lambda: diag.icue_running() and self.from_thread(self.warn_icue), daemon=True).start()
         self.after(100, self.run_thread_calls)
         self.after(700, self.watch_show_requests)
         self.after(1500, self.check_updates)
@@ -155,6 +157,11 @@ class App(ctk.CTk):
             child.destroy()
 
     # --- appareils ---
+    def warn_icue(self):
+        self.icue_warning = True
+        self.status("iCUE est lancé : quitte-le (icône près de l'horloge > Quitter), sinon il écrase les réglages "
+                    "d'IcueLite.", True)
+
     def memory_read(self, modules):
         self.memory_modules = modules
         self.refresh_devices()
@@ -179,8 +186,12 @@ class App(ctk.CTk):
             text, color = status_of(spec, self.found)
             self.device_row(spec, text, color).pack(fill="x", padx=4, pady=1)
         connected = sum(1 for s in CATALOG if s.key in self.found)
-        self.status(f"{connected} appareil(s) Corsair branché(s) reconnu(s)."
-                    + (f" {len(self.unknown)} interface(s) Corsair inconnue(s) : lance le diagnostic." if self.unknown else ""))
+        if self.icue_warning:
+            self.warn_icue()
+        else:
+            self.status(f"{connected} appareil(s) Corsair branché(s) reconnu(s)."
+                        + (f" {len(self.unknown)} interface(s) Corsair inconnue(s) : lance le diagnostic."
+                           if self.unknown else ""))
         if self.current and (self.current.key in self.found or self.cfg.get("show_all")):
             self.show_device(self.current)
         else:
@@ -264,6 +275,7 @@ class App(ctk.CTk):
 
         driver = self.ctrl.drivers.get(spec.key)
         self.sensor_labels = None
+        self.icue_warning = False   # iCUE lancé à l'ouverture d'IcueLite
         self.memory_modules = None  # barrettes lues par Windows, en arrière-plan (une seconde environ)
         if driver is not None:
             self.settings_panels(spec, driver, row=5)

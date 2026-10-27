@@ -99,6 +99,11 @@ def enumerate_raw():
         return []
 
 
+# Interfaces Corsair qui ne sont pas des appareils : le clavier/souris virtuel que crée le pilote « Corsair Bus »
+# d'iCUE (pas de nom, pas de numéro d'interface)
+VIRTUAL_PIDS = {0x1BF0: "périphérique virtuel d'iCUE (Corsair Bus), à ignorer"}
+
+
 def match(info):
     """L'appareil du catalogue qui correspond à une interface HID, ou None."""
     name = (info.get("product_string") or "").upper()
@@ -146,7 +151,8 @@ def detect(raw=None, usb=None, modules=None):
     for info in enumerate_raw() if raw is None else raw:
         spec = match(info)
         if spec is None:
-            unknown.append(info)
+            if info.get("product_id") not in VIRTUAL_PIDS:
+                unknown.append(info)
             continue
         found.setdefault(spec.key, Detected(spec)).interfaces.append(info)
     for pid, instance in usb_raw() if usb is None else usb:

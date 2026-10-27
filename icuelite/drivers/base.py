@@ -47,26 +47,71 @@ class Driver:
     def __init__(self, transport, interface=None):
         self.transport = transport
         self.interface = interface or {}
-        self.log = deque(maxlen=40)
+        self.log = deque(maxlen=150)
         self.software_mode = False
+        self.reopen = None        # fonction qui rouvre l'appareil (fournie par open_driver)
+        self.polling = False      # lecture périodique des capteurs : seules les premières sont notées
+        self.polls_logged = 0
+
+    def note(self, way, text):
+        if self.polling and way != "!":
+            if self.polls_logged >= 6:
+                return
+            self.polls_logged += 1
+        self.log.append((time.strftime("%H:%M:%S"), way, text))
+
+    def _reconnect(self, exc):
+        """L'appareil s'est reconnecté (changement de fréquence, mise en veille, iCUE…) : la poignée ouverte
+        ne vaut plus rien. On le rouvre, en repartant du mode autonome."""
+        if self.reopen is None:
+            return False
+        for attempt in range(8):
+            # l'appareil met une ou deux secondes à revenir après une reconnexion
+            time.sleep(0.5)
+            try:
+                transport, interface = self.reopen()
+                break
+            except (OSError, DriverError) as err:
+                last = err
+        else:
+            self.note("!", f"réouverture impossible : {last}")
+            return False
+        try:
+            self.transport.close()
+        except OSError:
+            pass
+        self.transport, self.interface = transport, interface
+        self.software_mode = False
+        self.after_reconnect()
+        self.note("*", f"appareil rouvert après « {exc} »")
+        return True
+
+    def after_reconnect(self):
+        """Oublie l'état propre à l'ancienne connexion (à surcharger)."""
 
     # --- échanges ---
     def send(self, packet):
         packet = bytes(packet)
-        self.log.append((time.strftime("%H:%M:%S"), ">", hexdump(packet)))
+        self.note(">", hexdump(packet))
         try:
             self.transport.write(packet)
         except OSError as exc:
-            self.log.append((time.strftime("%H:%M:%S"), "!", str(exc)))
-            raise DriverError(f"envoi impossible : {exc}") from exc
+            self.note("!", str(exc))
+            if not self._reconnect(exc):
+                raise DriverError(f"envoi impossible : {exc}") from exc
+            try:
+                self.transport.write(packet)
+            except OSError as again:
+                self.note("!", str(again))
+                raise DriverError(f"envoi impossible : {again}") from again
 
     def receive(self, timeout_ms=500):
         try:
             data = self.transport.read(timeout_ms)
         except OSError as exc:
-            self.log.append((time.strftime("%H:%M:%S"), "!", str(exc)))
+            self.note("!", str(exc))
             raise DriverError(f"lecture impossible : {exc}") from exc
-        self.log.append((time.strftime("%H:%M:%S"), "<", hexdump(data) if data else "(rien)"))
+        self.note("<", hexdump(data) if data else "(rien)")
         return data
 
     def flush(self):

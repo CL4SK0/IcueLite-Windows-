@@ -237,11 +237,13 @@ class Transport:
     def __init__(self, path):
         self.path = path
         self.reader = None
+        self.access = "lecture/écriture"
         try:
             self.handle = _open(path, GENERIC_READ | GENERIC_WRITE)
-        except OSError:
+        except OSError as exc:
             # Windows réserve les collections souris/clavier : un accès 0 suffit pour les feature reports
             self.handle = _open(path, 0)
+            self.access = f"limité ({exc})"
         caps = _caps(self.handle)
         self.feature_len = caps.FeatureReportByteLength if caps else 0
         self.output_len = caps.OutputReportByteLength if caps else 0
@@ -269,9 +271,11 @@ class Transport:
         buf = ctypes.create_string_buffer(payload, len(payload))
         written = wintypes.DWORD()
         if not WriteFile(self.handle, buf, len(payload), ctypes.byref(written), None):
+            first = ctypes.get_last_error()
             # Certains casques n'acceptent que HidD_SetOutputReport
             if not HidD_SetOutputReport(self.handle, buf, len(payload)):
-                raise _error("écriture")
+                exc = _error("écriture")
+                raise OSError(exc.errno, f"{exc.strerror} ; WriteFile : code {first}")
             return len(data)
         return len(data)
 
