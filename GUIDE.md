@@ -17,7 +17,7 @@ Les deux logiciels parlent aux mêmes appareils : quitte iCUE (et ses services C
 
 ## Diagnostic
 
-Le bouton **Diagnostic** écrit `icuelite-diag.txt` sur le Bureau, prépare un courriel à erwan.narbone@gmail.com (objet et texte remplis) et montre le fichier dans l'Explorateur : il n'y a plus qu'à le glisser en pièce jointe et envoyer. Son contenu est aussi copié, à coller avec Ctrl+V si on écrit depuis un webmail. Il ne fait que lire : identifiants USB des appareils Corsair, carte mère, référence des barrettes et logiciels concurrents. Envoie ce fichier si un appareil n'est pas reconnu.
+Le bouton **Diagnostic** écrit `icuelite-diag.txt` sur le Bureau et l'envoie automatiquement à Erwan par courriel (il faut Internet ; sinon, envoie le fichier à la main). Il ne fait que lire : identifiants USB des appareils Corsair, carte mère, référence des barrettes et logiciels concurrents. Envoie ce fichier si un appareil n'est pas reconnu.
 
 ## Version script (sans exe)
 
@@ -36,7 +36,7 @@ Les réglages sont mémorisés et réappliqués au prochain démarrage. En quitt
 
 ## Pour les testeurs
 
-Si un réglage ne prend pas : quitte iCUE, essaie le réglage dans IcueLite, puis clique sur **Diagnostic** et envoie le courriel préparé avec le fichier `icuelite-diag.txt` en pièce jointe. Il contient les derniers échanges avec chaque appareil, ce qui permet de corriger le protocole à distance.
+Si un réglage ne prend pas : quitte iCUE, essaie le réglage dans IcueLite, puis clique sur **Diagnostic** : le rapport part tout seul. Il contient les derniers échanges avec chaque appareil, ce qui permet de corriger le protocole à distance.
 
 ## Ce qu'IcueLite peut piloter
 

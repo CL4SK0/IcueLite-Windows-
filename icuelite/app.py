@@ -1,13 +1,9 @@
 """Interface graphique d'IcueLite : appareils dans la colonne de gauche, détail à droite, comme iCUE."""
 
-import os
 import queue
-import subprocess
 import sys
 import threading
 from pathlib import Path
-
-import tkinter as tk
 
 import customtkinter as ctk
 from PIL import ImageTk
@@ -550,26 +546,16 @@ class App(ctk.CTk):
             except Exception as exc:
                 self.from_thread(self.status, f"Diagnostic impossible : {exc}", True)
                 return
-            self.from_thread(self.diag_done, path)
+            self.from_thread(self.status, "Diagnostic enregistré, envoi à Erwan…")
+            try:
+                diag.send(path.read_text(encoding="utf-8"), __version__)
+            except Exception as exc:
+                self.from_thread(self.status, f"Envoi impossible ({updater.describe(exc)}). "
+                                 f"Le fichier est sur le Bureau : {path.name}", True)
+                return
+            self.from_thread(self.status, "Diagnostic envoyé à Erwan. Merci !")
 
         threading.Thread(target=work, daemon=True).start()
-
-    def diag_done(self, path):
-        """Prépare l'envoi par mail : contenu dans le presse-papiers, courriel pré-rempli et fichier montré dans
-        l'Explorateur pour le glisser en pièce jointe."""
-        try:
-            self.clipboard_clear()
-            self.clipboard_append(path.read_text(encoding="utf-8"))
-        except (OSError, tk.TclError):
-            pass
-        self.status(f"Diagnostic enregistré : {path}. Envoie-le à {diag.SUPPORT_EMAIL} "
-                    "(courriel préparé, fichier à joindre, contenu aussi copié).")
-        if sys.platform == "win32":
-            subprocess.Popen(f'explorer /select,"{path}"')
-            try:
-                os.startfile(diag.mailto(path, __version__))
-            except OSError:
-                pass  # pas de logiciel de messagerie : le fichier et le presse-papiers suffisent
 
     # --- outils ---
     def status(self, text, error=False):

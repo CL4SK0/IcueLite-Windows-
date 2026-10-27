@@ -86,17 +86,25 @@ def report(extra=None):
 
 
 SUPPORT_EMAIL = "erwan.narbone@gmail.com"
+# FormSubmit transmet par courriel ce qu'on lui poste, sans compte ni mot de passe dans l'exe. Le tout premier
+# envoi déclenche un courriel d'activation à SUPPORT_EMAIL : une fois le lien cliqué, les envois arrivent.
+SEND_URL = f"https://formsubmit.co/ajax/{SUPPORT_EMAIL}"
 
 
-def mailto(path, version):
-    """Lien mailto: vers le support, avec objet et texte tout prêts (le fichier, lui, doit être joint à la main :
-    mailto ne sait pas joindre de pièce et limite la longueur du texte)."""
-    from urllib.parse import quote
-    subject = f"IcueLite {version} - diagnostic"
-    body = (f"Bonjour,\n\nVoici mon diagnostic IcueLite.\n"
-            f"Le fichier à joindre : {path}\n"
-            "(son contenu est aussi dans le presse-papiers : Ctrl+V pour le coller ici si besoin)\n")
-    return f"mailto:{SUPPORT_EMAIL}?subject={quote(subject)}&body={quote(body)}"
+def send(text, version):
+    """Envoie le rapport par courriel. Lève OSError (avec la raison) si l'envoi n'a pas abouti."""
+    import socket
+    import urllib.request
+    payload = {"_subject": f"IcueLite {version} - diagnostic de {socket.gethostname()}",
+               "_template": "box", "_captcha": "false",
+               "appareil": socket.gethostname(), "version": version, "diagnostic": text}
+    req = urllib.request.Request(SEND_URL, data=json.dumps(payload).encode("utf-8"),
+                                 headers={"Content-Type": "application/json", "Accept": "application/json",
+                                          "User-Agent": f"IcueLite/{version}"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        answer = json.loads(resp.read() or b"{}")
+    if str(answer.get("success")).lower() != "true":
+        raise OSError(answer.get("message") or "envoi refusé")
 
 
 def write(folder=None, extra=None):
