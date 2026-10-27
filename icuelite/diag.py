@@ -85,37 +85,40 @@ def report(extra=None):
     return "\n".join(lines)
 
 
-SUPPORT_EMAIL = "erwan.narbone@gmail.com"
-# Envoi du rapport par courriel sans mot de passe dans l'exe : un petit script Google Apps Script déployé par
-# Erwan (tools/diag_mail.gs) reçoit le rapport et se l'envoie. Sans adresse de script, on passerait par
-# FormSubmit (le premier envoi y déclenche un courriel d'activation).
+# Envoi du rapport par courriel à Erwan, sans mot de passe dans l'exe : d'abord son script Google Apps Script
+# (tools/diag_mail.gs), puis FormSubmit en secours (alias fourni par FormSubmit à la place de l'adresse).
 SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxbkr527gGpGfJ-F4mtVaElYIt0xvkdddR74EcoAEKP0pumlIHG3UV4faVblF6BGv8/exec"
-FORMSUBMIT_URL = f"https://formsubmit.co/ajax/{SUPPORT_EMAIL}"
+FORMSUBMIT_URL = "https://formsubmit.co/ajax/0549c5a5576e06fbf2ae9e54ac5eb542"
 PAGE = "https://github.com/CL4SK0/IcueLite-Windows-"
 
 
-def send(text, version):
-    """Envoie le rapport par courriel. Lève OSError (avec la raison) si l'envoi n'a pas abouti."""
-    import socket
+def _post(url, payload, headers):
     import urllib.request
     from .updater import urlopen
-    payload = {"_subject": f"IcueLite {version} - diagnostic de {socket.gethostname()}",
-               "_template": "box", "_captcha": "false", "source": "icuelite",
-               "appareil": socket.gethostname(), "version": version, "diagnostic": text}
-    headers = {"Content-Type": "application/json", "Accept": "application/json",
-               "User-Agent": f"IcueLite/{version}"}
-    if not SCRIPT_URL:
-        headers.update({"Origin": "https://github.com", "Referer": PAGE})
-    req = urllib.request.Request(SCRIPT_URL or FORMSUBMIT_URL, data=json.dumps(payload).encode("utf-8"),
-                                 headers=headers)
+    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
     with urlopen(req, timeout=45) as resp:
         raw = resp.read()
     try:
         answer = json.loads(raw or b"{}")
     except ValueError:
-        raise OSError("réponse inattendue du script d'envoi") from None
+        raise OSError("réponse inattendue du service d'envoi") from None
     if str(answer.get("success")).lower() != "true":
         raise OSError(answer.get("message") or "envoi refusé")
+
+
+def send(text, version):
+    """Envoie le rapport par courriel. Lève OSError (avec la raison) si aucun service ne l'a accepté."""
+    import socket
+    payload = {"_subject": f"IcueLite {version} - diagnostic de {socket.gethostname()}",
+               "_template": "box", "_captcha": "false", "source": "icuelite",
+               "appareil": socket.gethostname(), "version": version, "diagnostic": text}
+    headers = {"Content-Type": "application/json", "Accept": "application/json",
+               "User-Agent": f"IcueLite/{version}"}
+    try:
+        _post(SCRIPT_URL, payload, headers)
+    except Exception:
+        # FormSubmit n'accepte que des envois qui semblent venir d'une page web
+        _post(FORMSUBMIT_URL, payload, dict(headers, Origin="https://github.com", Referer=PAGE))
 
 
 def write(folder=None, extra=None):
