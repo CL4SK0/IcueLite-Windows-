@@ -86,9 +86,12 @@ def report(extra=None):
 
 
 SUPPORT_EMAIL = "erwan.narbone@gmail.com"
-# FormSubmit transmet par courriel ce qu'on lui poste, sans compte ni mot de passe dans l'exe. Le tout premier
-# envoi déclenche un courriel d'activation à SUPPORT_EMAIL : une fois le lien cliqué, les envois arrivent.
-SEND_URL = f"https://formsubmit.co/ajax/{SUPPORT_EMAIL}"
+# Envoi du rapport par courriel sans mot de passe dans l'exe : un petit script Google Apps Script déployé par
+# Erwan (tools/diag_mail.gs) reçoit le rapport et se l'envoie. Tant que son adresse n'est pas renseignée,
+# on passe par FormSubmit (le premier envoi y déclenche un courriel d'activation).
+SCRIPT_URL = ""
+FORMSUBMIT_URL = f"https://formsubmit.co/ajax/{SUPPORT_EMAIL}"
+PAGE = "https://github.com/CL4SK0/IcueLite-Windows-"
 
 
 def send(text, version):
@@ -97,12 +100,15 @@ def send(text, version):
     import urllib.request
     from .updater import urlopen
     payload = {"_subject": f"IcueLite {version} - diagnostic de {socket.gethostname()}",
-               "_template": "box", "_captcha": "false",
+               "_template": "box", "_captcha": "false", "source": "icuelite",
                "appareil": socket.gethostname(), "version": version, "diagnostic": text}
-    req = urllib.request.Request(SEND_URL, data=json.dumps(payload).encode("utf-8"),
-                                 headers={"Content-Type": "application/json", "Accept": "application/json",
-                                          "User-Agent": f"IcueLite/{version}"})
-    with urlopen(req, timeout=30) as resp:
+    headers = {"Content-Type": "application/json", "Accept": "application/json",
+               "User-Agent": f"IcueLite/{version}"}
+    if not SCRIPT_URL:
+        headers.update({"Origin": "https://github.com", "Referer": PAGE})
+    req = urllib.request.Request(SCRIPT_URL or FORMSUBMIT_URL, data=json.dumps(payload).encode("utf-8"),
+                                 headers=headers)
+    with urlopen(req, timeout=45) as resp:
         answer = json.loads(resp.read() or b"{}")
     if str(answer.get("success")).lower() != "true":
         raise OSError(answer.get("message") or "envoi refusé")

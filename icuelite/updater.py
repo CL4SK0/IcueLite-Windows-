@@ -109,17 +109,17 @@ def _latest_release(name):
         return tag, "", {n: f"{base}/{n}" for n in (EXE_ASSET, ZIP_ASSET)}
 
 
-def describe(exc):
-    """Message lisible pour une erreur de vérification ou de téléchargement."""
+def describe(exc, site="GitHub"):
+    """Message lisible pour une erreur réseau (site : le serveur contacté)."""
     import ssl
     import urllib.error
     reason = getattr(exc, "reason", None)
     if isinstance(exc, urllib.error.HTTPError):
-        return f"GitHub a répondu {exc.code}"
+        return f"{site} a répondu {exc.code}"
     if isinstance(reason, ssl.SSLError) or isinstance(exc, ssl.SSLError):
         return "certificat refusé (antivirus ou pare-feu qui filtre le HTTPS ?)"
     if isinstance(exc, TimeoutError) or "timed out" in str(reason or exc):
-        return "GitHub ne répond pas (connexion ou pare-feu ?)"
+        return f"{site} ne répond pas (connexion ou pare-feu ?)"
     if reason is not None:
         return f"connexion impossible ({reason})"
     return f"{type(exc).__name__} : {exc}"

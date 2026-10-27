@@ -550,7 +550,7 @@ class App(ctk.CTk):
             try:
                 diag.send(path.read_text(encoding="utf-8"), __version__)
             except Exception as exc:
-                self.from_thread(self.status, f"Envoi impossible ({updater.describe(exc)}). "
+                self.from_thread(self.status, f"Envoi impossible ({updater.describe(exc, 'le service d’envoi')}). "
                                  f"Le fichier est sur le Bureau : {path.name}", True)
                 return
             self.from_thread(self.status, "Diagnostic envoyé à Erwan. Merci !")
