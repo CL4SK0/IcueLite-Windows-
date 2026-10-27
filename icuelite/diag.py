@@ -96,7 +96,7 @@ def _post(url, payload, headers):
     import urllib.request
     from .updater import urlopen
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers)
-    with urlopen(req, timeout=45) as resp:
+    with urlopen(req, timeout=90) as resp:
         raw = resp.read()
     try:
         answer = json.loads(raw or b"{}")
@@ -114,11 +114,19 @@ def send(text, version):
                "appareil": socket.gethostname(), "version": version, "diagnostic": text}
     headers = {"Content-Type": "application/json", "Accept": "application/json",
                "User-Agent": f"IcueLite/{version}"}
+    from .updater import describe
     try:
-        _post(SCRIPT_URL, payload, headers)
-    except Exception:
+        return _post(SCRIPT_URL, payload, headers)
+    except Exception as exc:
+        script_error = describe(exc, "le script Google")
+    try:
         # FormSubmit n'accepte que des envois qui semblent venir d'une page web
         _post(FORMSUBMIT_URL, payload, dict(headers, Origin="https://github.com", Referer=PAGE))
+    except Exception as exc:
+        if isinstance(exc, TimeoutError) or "timed out" in str(getattr(exc, "reason", exc)):
+            # FormSubmit envoie souvent le courriel sans répondre à temps
+            raise OSError(f"{script_error} ; FormSubmit n'a pas confirmé, le courriel arrive peut-être quand même") from None
+        raise OSError(f"{script_error} ; {describe(exc, 'FormSubmit')}") from None
 
 
 def write(folder=None, extra=None):

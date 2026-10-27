@@ -546,11 +546,11 @@ class App(ctk.CTk):
             except Exception as exc:
                 self.from_thread(self.status, f"Diagnostic impossible : {exc}", True)
                 return
-            self.from_thread(self.status, "Diagnostic enregistré, envoi à Erwan…")
+            self.from_thread(self.status, "Diagnostic enregistré, envoi à Erwan (jusqu'à une minute)…")
             try:
                 diag.send(path.read_text(encoding="utf-8"), __version__)
             except Exception as exc:
-                self.from_thread(self.status, f"Envoi impossible ({updater.describe(exc, 'le service d’envoi')}). "
+                self.from_thread(self.status, f"Envoi impossible : {exc}. "
                                  f"Le fichier est sur le Bureau : {path.name}", True)
                 return
             self.from_thread(self.status, "Diagnostic envoyé à Erwan. Merci !")
