@@ -20,12 +20,12 @@ RES_LIGHTING = 0x01
 POLL_CODES = {125: 0x01, 250: 0x02, 500: 0x03, 1000: 0x04, 2000: 0x05, 4000: 0x06, 8000: 0x07}
 
 
-def frame(size, *data):
-    """Paquet complet : report ID 0 puis les données, complété à `size` octets de données."""
+def frame(size, *data, report_id=0):
+    """Paquet complet : report ID (0 en général) puis les données, complété à `size` octets de données."""
     data = bytes(data)
     if len(data) > size:
         raise ValueError("paquet trop long")
-    return b"\x00" + data + bytes(size - len(data))
+    return bytes([report_id]) + data + bytes(size - len(data))
 
 
 def set_property(size, prop, value, width=2):
@@ -76,6 +76,10 @@ class BragiKeyboard(Driver):
 
         Les réponses aux paquets envoyés sans attendre arrivent quand même : on saute celles dont l'octet de
         commande n'est pas le bon, pour ne pas prendre la réponse d'un paquet précédent."""
+        rid = getattr(self.transport, "report_id", 0)
+        if rid:
+            # certains appareils (le casque Virtuoso XT) numérotent leurs rapports : Windows refuse le 0
+            packet = bytes([rid]) + bytes(packet)[1:]
         self.send(packet)
         if not wait:
             return b""

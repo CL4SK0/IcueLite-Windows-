@@ -52,6 +52,8 @@ Si un réglage ne prend pas : quitte iCUE, essaie le réglage dans IcueLite, pui
 | Nautilus 360 RS ARGB | carte mère | éclairage seulement, via la carte mère |
 | Vengeance DDR5 | carte mère (SMBus) | détectée (référence, vitesse) ; rien à piloter sur la version sans RGB |
 
-La page **Surveillance** montre les mesures des appareils (températures, régimes…) avec leur minimum, leur maximum et leur courbe, comme dans iCUE.
+La page **Surveillance** montre les mesures des appareils (températures, régimes…) avec leur minimum, leur maximum et leur courbe, comme dans iCUE, ainsi que celles du PC : charge et fréquence du processeur, mémoire, disques, réseau, batterie, cartes graphiques NVIDIA. Pour les températures du processeur, de la carte mère et des disques, lance LibreHardwareMonitor avec Options > Remote Web Server > Run.
+
+Si iCUE est lancé, IcueLite le signale et propose un bouton **Fermer iCUE**.
 
 Le tableau de bord n'affiche que les appareils détectés ; le bouton « Voir tous les appareils pris en charge » montre les autres.

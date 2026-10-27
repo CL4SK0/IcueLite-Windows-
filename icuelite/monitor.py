@@ -8,7 +8,8 @@ import customtkinter as ctk
 from . import theme as t
 
 # couleur de la courbe selon le type de mesure, comme dans iCUE (orange pour les températures…)
-COLORS = {"°C": "#ff9a3c", "tr/min": "#3cb4ff", "W": "#b56cff", "V": "#b56cff", "A": "#b56cff", "%": "#4ad66d"}
+COLORS = {"°C": "#ff9a3c", "tr/min": "#3cb4ff", "W": "#b56cff", "V": "#b56cff", "A": "#b56cff", "%": "#4ad66d",
+          "MHz": "#ffd400", "Go": "#5ad1c8", "Mo": "#5ad1c8", "Mo/s": "#ff6fa8"}
 
 
 def readings(sensors):
@@ -20,7 +21,7 @@ def readings(sensors):
 
 
 def fmt(value, unit):
-    if unit in ("tr/min", "W") or abs(value) >= 100:
+    if unit in ("tr/min", "W", "MHz", "Mo", "%") or abs(value) >= 100:
         return f"{value:.0f}"
     return f"{value:.1f}" if unit == "°C" else f"{value:.2f}"
 

@@ -69,6 +69,12 @@ HidD_GetAttributes = _proto(_hid, "HidD_GetAttributes", wintypes.BOOLEAN, HANDLE
 HidD_GetPreparsedData = _proto(_hid, "HidD_GetPreparsedData", wintypes.BOOLEAN, HANDLE, ctypes.POINTER(PVOID))
 HidD_FreePreparsedData = _proto(_hid, "HidD_FreePreparsedData", wintypes.BOOLEAN, PVOID)
 HidP_GetCaps = _proto(_hid, "HidP_GetCaps", ctypes.c_long, PVOID, ctypes.POINTER(HIDP_CAPS))
+HidP_GetValueCaps = _proto(_hid, "HidP_GetValueCaps", ctypes.c_long, ctypes.c_int, PVOID,
+                           ctypes.POINTER(wintypes.USHORT), PVOID)
+HidP_GetButtonCaps = _proto(_hid, "HidP_GetButtonCaps", ctypes.c_long, ctypes.c_int, PVOID,
+                            ctypes.POINTER(wintypes.USHORT), PVOID)
+HIDP_OUTPUT = 1
+CAPS_SIZE = 72  # sizeof(HIDP_VALUE_CAPS) = sizeof(HIDP_BUTTON_CAPS) ; ReportID à l'octet 2
 HidD_GetProductString = _proto(_hid, "HidD_GetProductString", wintypes.BOOLEAN, HANDLE, PVOID, wintypes.ULONG)
 HidD_SetFeature = _proto(_hid, "HidD_SetFeature", wintypes.BOOLEAN, HANDLE, PVOID, wintypes.ULONG)
 HidD_GetFeature = _proto(_hid, "HidD_GetFeature", wintypes.BOOLEAN, HANDLE, PVOID, wintypes.ULONG)
@@ -126,14 +132,26 @@ def _open(path, access, flags=0):
     return handle
 
 
-def _caps(handle):
+def _caps(handle, with_ids=False):
+    """Capacités HID ; avec with_ids, renvoie aussi les report IDs des rapports de sortie."""
     pre = PVOID()
     if not HidD_GetPreparsedData(handle, ctypes.byref(pre)):
-        return None
+        return (None, []) if with_ids else None
     try:
         caps = HIDP_CAPS()
         HidP_GetCaps(pre, ctypes.byref(caps))
-        return caps
+        if not with_ids:
+            return caps
+        ids = set()
+        for getter, count in ((HidP_GetValueCaps, caps.NumberOutputValueCaps),
+                              (HidP_GetButtonCaps, caps.NumberOutputButtonCaps)):
+            if not count:
+                continue
+            buf = ctypes.create_string_buffer(CAPS_SIZE * count)
+            length = wintypes.USHORT(count)
+            if getter(HIDP_OUTPUT, buf, ctypes.byref(length), pre) == 0x00110000:  # HIDP_STATUS_SUCCESS
+                ids.update(buf.raw[i * CAPS_SIZE + 2] for i in range(length.value))
+        return caps, sorted(ids)
     finally:
         HidD_FreePreparsedData(pre)
 
@@ -244,7 +262,10 @@ class Transport:
             # Windows réserve les collections souris/clavier : un accès 0 suffit pour les feature reports
             self.handle = _open(path, 0)
             self.access = f"limité ({exc})"
-        caps = _caps(self.handle)
+        caps, ids = _caps(self.handle, with_ids=True)
+        # report ID des rapports de sortie : 0 s'il n'y en a pas (cas courant), sinon le premier déclaré
+        self.output_ids = ids
+        self.report_id = next((i for i in ids if i), 0)
         self.feature_len = caps.FeatureReportByteLength if caps else 0
         self.output_len = caps.OutputReportByteLength if caps else 0
         self.input_len = caps.InputReportByteLength if caps else 0

@@ -34,6 +34,7 @@ class Controller:
         self.sensors = {}
         self.history = {}      # clé -> {(nom, unité): deque de valeurs}, une toutes les 4 s (10 minutes)
         self.started = time.monotonic()
+        self.pc = None         # mesures du PC (processeur, carte graphique…), voir pcmon
         self.jobs = queue.Queue()
         self.found = {}        # derniers appareils détectés, pour retenter ceux qui n'ont pas pu s'ouvrir
         self.stopping = False
@@ -104,6 +105,11 @@ class Controller:
 
     def _tick(self):
         self._retry_open()
+        if self.pc is None:
+            from .pcmon import PcMonitor
+            self.pc = PcMonitor()
+        self.sensors["pc"] = self.pc.read()
+        self.record("pc", self.sensors["pc"])
         for key, driver in list(self.drivers.items()):
             try:
                 driver.polling = True
@@ -141,6 +147,13 @@ class Controller:
                 self.errors[key] = str(exc)
                 continue
             self.apply_all(key)
+
+    def reset(self):
+        """Ferme tous les pilotes : le prochain attach les rouvre (après la fermeture d'iCUE, par exemple)."""
+        for key in list(self.drivers):
+            gone = self.drivers.pop(key)
+            self.jobs.put((key, "_call", (lambda d=gone: self._close(d),), ""))
+        self.errors.clear()
 
     def apply_all(self, key):
         driver = self.drivers.get(key)
@@ -187,7 +200,8 @@ class Controller:
         for key, driver in self.drivers.items():
             lines.append(f"[{key}] {type(driver).__name__} interface if={driver.interface.get('interface_number')} "
                          f"page={driver.interface.get('usage_page', 0):04x} "
-                         f"accès={getattr(driver.transport, 'access', '?')}")
+                         f"accès={getattr(driver.transport, 'access', '?')} "
+                         f"report IDs de sortie={getattr(driver.transport, 'output_ids', '?')}")
             lines += [f"  {t} {way} {text}" for t, way, text in driver.log]
         for key, err in self.errors.items():
             lines.append(f"[{key}] erreur : {err}")

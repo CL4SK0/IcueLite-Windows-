@@ -86,7 +86,7 @@ class App(ctk.CTk):
 
         self.refresh_devices()
         threading.Thread(target=lambda: self.from_thread(self.memory_read, memory.modules()), daemon=True).start()
-        threading.Thread(target=lambda: diag.icue_running() and self.from_thread(self.warn_icue), daemon=True).start()
+        self.after(1000, self.watch_icue)
         self.after(100, self.run_thread_calls)
         self.after(700, self.watch_show_requests)
         self.after(1500, self.check_updates)
@@ -127,7 +127,12 @@ class App(ctk.CTk):
         foot.grid(row=3, column=0, padx=12, pady=14, sticky="ew")
         button(foot, "Rechercher une mise à jour", lambda: self.check_updates(manual=True)).pack(fill="x")
         button(foot, "Diagnostic", self.run_diag).pack(fill="x", pady=(8, 0))
-        label(foot, f"Version {__version__}", 11, t.FAINT).pack(pady=(10, 0))
+        self.icue_btn = ctk.CTkButton(foot, text="Fermer iCUE", command=self.close_icue, height=34, corner_radius=6,
+                                      fg_color=t.DANGER, hover_color="#d94a4a", text_color="#1a0000",
+                                      font=ctk.CTkFont(t.FONT, 13, "bold"))
+        self.foot = foot
+        self.version_label = label(foot, f"Version {__version__}", 11, t.FAINT)
+        self.version_label.pack(pady=(10, 0))
         side.grid_columnconfigure(0, weight=1)
 
     def nav_button(self, parent, text, command):
@@ -161,10 +166,40 @@ class App(ctk.CTk):
             child.destroy()
 
     # --- appareils ---
+    def watch_icue(self):
+        """Toutes les 20 secondes : iCUE lancé ? (il reprend la main sur les appareils et écrase nos réglages)"""
+        def work():
+            running = diag.icue_running()
+            self.from_thread(self.warn_icue if running else self.icue_gone)
+        threading.Thread(target=work, daemon=True).start()
+        self.after(20000, self.watch_icue)
+
+    def icue_gone(self):
+        if self.icue_warning:
+            self.icue_warning = False
+            self.icue_btn.pack_forget()
+            self.status("iCUE est fermé : IcueLite a la main sur les appareils.")
+
+    def close_icue(self):
+        self.status("Fermeture d'iCUE…")
+
+        def work():
+            diag.close_icue()
+            self.from_thread(self.after, 3000, self.after_icue_closed)
+        threading.Thread(target=work, daemon=True).start()
+
+    def after_icue_closed(self):
+        self.icue_gone()
+        # les appareils ont pu se reconnecter quand iCUE les a lâchés : on les rouvre tous
+        self.ctrl.reset()
+        self.refresh_devices()
+
     def warn_icue(self):
+        if not self.icue_warning:
+            self.icue_btn.pack(fill="x", pady=(8, 0), before=self.version_label)
         self.icue_warning = True
-        self.status("iCUE est lancé : quitte-le (icône près de l'horloge > Quitter), sinon il écrase les réglages "
-                    "d'IcueLite.", True)
+        self.status("iCUE est lancé : il reprend la main sur les appareils et écrase les réglages d'IcueLite. "
+                    "Clique sur « Fermer iCUE » en bas à gauche.", True)
 
     def memory_read(self, modules):
         self.memory_modules = modules
@@ -506,18 +541,22 @@ class App(ctk.CTk):
               wraplength=760).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 14))
         keys = [s.key for s in CATALOG if s.key in self.ctrl.drivers and self.ctrl.drivers[s.key].sensors]
         row = 2
-        for key in keys:
-            spec = next(s for s in CATALOG if s.key == key)
-            label(self.content, spec.name, 15, bold=True).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 6))
+        names = {s.key: s.name for s in CATALOG}
+        names["pc"] = "Ce PC"
+        for key in keys + ["pc"]:
+            label(self.content, names[key], 15, bold=True).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 6))
             self.sensor_tiles(key, row + 1, columnspan=2, framed=False)
             row += 2
-        if keys:
-            self.graph = monitor.Graph(self.content)
-            self.graph.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(6, 12))
-        else:
-            label(self.content, "Aucun appareil branché ne donne de mesures pour l'instant (watercooling H150i, "
-                  "hub iCUE LINK ; l'alimentation AX1600i viendra avec son pilote).", 13, t.FAINT, anchor="w",
-                  justify="left", wraplength=760).grid(row=row, column=0, columnspan=2, sticky="w")
+        temps = [n for n, u in self.ctrl.history.get("pc", {}) if u == "°C" and "(température)" not in n]
+        if not temps:
+            label(self.content, "Températures du processeur, de la carte mère et des disques : Windows ne les donne pas "
+                  "sans pilote. Lance LibreHardwareMonitor (gratuit) et active Options > Remote Web Server > Run : "
+                  "IcueLite les affichera ici.", 12, t.FAINT, anchor="w", justify="left", wraplength=760).grid(
+                row=row, column=0, columnspan=2, sticky="w", pady=(0, 10))
+            row += 1
+        keys.append("pc")
+        self.graph = monitor.Graph(self.content)
+        self.graph.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(6, 12))
         self.refresh_tiles()
 
     def sensor_tiles(self, key, row, columnspan=2, framed=True):

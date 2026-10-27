@@ -29,6 +29,22 @@ def icue_running():
     return "icue.exe" in out.lower()
 
 
+def close_icue():
+    """Ferme iCUE (et son hôte de modules, qui parle aussi aux appareils). Renvoie True si quelque chose a été fermé.
+    Les services Corsair restent : les arrêter demande les droits d'administrateur, et ils gênent peu."""
+    if sys.platform != "win32":
+        return False
+    closed = False
+    for image in ("iCUE.exe", "iCUEDevicePluginHost.exe"):
+        try:
+            done = subprocess.run(["taskkill", "/IM", image, "/F"], capture_output=True, text=True, timeout=15,
+                                  creationflags=NO_WINDOW)
+            closed = closed or done.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    return closed
+
+
 def powershell(command):
     if sys.platform != "win32":
         return []

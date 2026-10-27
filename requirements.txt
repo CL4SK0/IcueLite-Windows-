@@ -2,3 +2,4 @@ customtkinter>=5.2
 pillow>=10
 certifi
 truststore>=0.9
+psutil>=5.9
