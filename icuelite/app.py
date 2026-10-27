@@ -615,7 +615,7 @@ class App(ctk.CTk):
     def on_update_checked(self, info, manual):
         if isinstance(info, Exception):
             if manual:
-                self.status("Impossible de vérifier les mises à jour (connexion ?).", True)
+                self.status(f"Impossible de vérifier les mises à jour : {updater.describe(info)}.", True)
             return
         if not info:
             if manual:

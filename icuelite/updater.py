@@ -68,20 +68,52 @@ def _get(url):
         return resp.read()
 
 
+def _latest_release(name):
+    """(tag, notes, {nom: url}) de la dernière version. L'API GitHub limite les appels anonymes (60 par heure et
+    par adresse IP) : si elle refuse ou ne répond pas, on suit la redirection de la page « latest » du site."""
+    try:
+        data = json.loads(_get(f"https://api.github.com/repos/{name}/releases/latest"))
+        assets = {a["name"]: a["browser_download_url"] for a in data.get("assets", [])}
+        return data.get("tag_name", ""), (data.get("body") or "").strip(), assets
+    except (OSError, ValueError):
+        req = urllib.request.Request(f"https://github.com/{name}/releases/latest",
+                                     headers={"User-Agent": f"IcueLite/{__version__}"})
+        with urllib.request.urlopen(req, timeout=TIMEOUT) as resp:
+            tag = resp.geturl().rstrip("/").rsplit("/", 1)[-1]
+        if "tag" not in resp.geturl():
+            raise OSError("aucune version publiée trouvée")
+        base = f"https://github.com/{name}/releases/download/{tag}"
+        return tag, "", {n: f"{base}/{n}" for n in (EXE_ASSET, ZIP_ASSET)}
+
+
+def describe(exc):
+    """Message lisible pour une erreur de vérification ou de téléchargement."""
+    import ssl
+    import urllib.error
+    reason = getattr(exc, "reason", None)
+    if isinstance(exc, urllib.error.HTTPError):
+        return f"GitHub a répondu {exc.code}"
+    if isinstance(reason, ssl.SSLError) or isinstance(exc, ssl.SSLError):
+        return "certificat refusé (antivirus ou pare-feu qui filtre le HTTPS ?)"
+    if isinstance(exc, TimeoutError) or "timed out" in str(reason or exc):
+        return "GitHub ne répond pas (connexion ou pare-feu ?)"
+    if reason is not None:
+        return f"connexion impossible ({reason})"
+    return f"{type(exc).__name__} : {exc}"
+
+
 def check():
     """Renvoie la nouvelle version disponible (dict) ou None. Lève OSError si GitHub est injoignable."""
     name = repo()
     if not name:
         return None
-    data = json.loads(_get(f"https://api.github.com/repos/{name}/releases/latest"))
-    version = data.get("tag_name", "")
+    version, notes, assets = _latest_release(name)
     if parse_version(version) <= parse_version(__version__):
         return None
-    assets = {a["name"]: a["browser_download_url"] for a in data.get("assets", [])}
     url = assets.get(EXE_ASSET if frozen() else ZIP_ASSET)
     if not url:
         return None
-    return {"version": version.lstrip("vV"), "notes": (data.get("body") or "").strip(), "url": url}
+    return {"version": version.lstrip("vV"), "notes": notes, "url": url}
 
 
 def download(url, dest, progress=None):
