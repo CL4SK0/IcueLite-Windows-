@@ -513,8 +513,14 @@ class App(ctk.CTk):
                 s["colors"][zone] = list(value) if value else None
             self.ctrl.save(spec.key, "colors")
             pic.configure(image=device_image(spec.key, 640, 300, self.preview_colors(spec.key)))
-            if live:
+            # l'appareil a pu être pris en main après l'ouverture de la page : on regarde au moment du clic
+            current = self.ctrl.drivers.get(spec.key)
+            if current and current.zones:
                 self.ctrl.apply_colors(spec.key, label="Éclairage")
+            else:
+                why = self.ctrl.errors.get(spec.key, "pas encore de pilote d'éclairage")
+                self.status(f"{spec.name} : couleur gardée pour plus tard, l'appareil n'est pas pris en main ({why}).",
+                            True)
 
         for zone in zones:
             row = ctk.CTkFrame(card, fg_color="transparent")

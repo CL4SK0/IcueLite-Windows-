@@ -31,6 +31,7 @@ class Controller:
         self.errors = {}
         self.sensors = {}
         self.jobs = queue.Queue()
+        self.found = {}        # derniers appareils détectés, pour retenter ceux qui n'ont pas pu s'ouvrir
         self.stopping = False
         self.thread = threading.Thread(target=self._loop, daemon=True)
         self.thread.start()
@@ -83,7 +84,22 @@ class Controller:
             self.notify(key, f"{label} : appliqué.")
         return result
 
+    def _retry_open(self):
+        """Un appareil encore tenu par iCUE au démarrage (iCUE en train de se fermer…) : on retente."""
+        for key, detected in list(self.found.items()):
+            if key in self.drivers or key not in self.errors or not has_driver(key):
+                continue
+            try:
+                self.drivers[key] = open_driver(detected)
+            except DriverError as exc:
+                self.errors[key] = str(exc)
+                continue
+            self.errors.pop(key, None)
+            self.notify(key, "appareil pris en main.")
+            self.apply_all(key)
+
     def _tick(self):
+        self._retry_open()
         for key, driver in list(self.drivers.items()):
             try:
                 driver.polling = True
@@ -99,6 +115,7 @@ class Controller:
     # --- appareils ---
     def attach(self, found):
         """Ouvre les pilotes des appareils détectés (et ferme ceux qui ont disparu), puis réapplique leurs réglages."""
+        self.found = dict(found)
         for key in list(self.drivers):
             if key not in found:
                 gone = self.drivers.pop(key)

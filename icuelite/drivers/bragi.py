@@ -65,15 +65,22 @@ class BragiKeyboard(Driver):
         self.lighting_open = False
 
     def command(self, packet, wait=True):
-        """Envoie un paquet ; si wait, renvoie la réponse (00 cmd statut valeur…), notée dans le journal."""
-        if wait:
-            self.flush()
+        """Envoie un paquet ; si wait, renvoie sa réponse (00 cmd statut valeur…), notée dans le journal.
+
+        Les réponses aux paquets envoyés sans attendre arrivent quand même : on saute celles dont l'octet de
+        commande n'est pas le bon, pour ne pas prendre la réponse d'un paquet précédent."""
         self.send(packet)
         if not wait:
             return b""
-        data = self.receive(300)
-        # Windows renvoie le report ID en tête : on le retire (réponse : 00 cmd statut valeur…)
-        return data[1:] if len(data) > self.size else data
+        for _ in range(4):
+            data = self.receive(300)
+            if not data:
+                return b""
+            # Windows renvoie le report ID en tête : on le retire
+            data = data[1:] if len(data) > self.size else data
+            if len(data) > 1 and data[1] == packet[2]:
+                return data
+        return b""
 
     def firmware(self):
         data = self.command(get_property(self.size, PROP_FIRMWARE))

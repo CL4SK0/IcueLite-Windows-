@@ -64,6 +64,14 @@ class LegacyMouse(Driver):
     dpi_stage_count = 5
     poll_rates = (125, 250, 500, 1000)
 
+    def send(self, packet):
+        # La souris répond à chaque commande par un écho (07 xx …) : on le lit pour le journal du diagnostic,
+        # sans attendre longtemps s'il ne vient pas.
+        self.flush()
+        super().send(packet)
+        if packet[1] == 0x07:
+            self.receive(150)
+
     def ensure_software(self):
         if not self.software_mode:
             self.send(software_mode(True))
