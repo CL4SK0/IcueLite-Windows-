@@ -8,7 +8,7 @@ from pathlib import Path
 import customtkinter as ctk
 from PIL import ImageTk
 
-from . import __version__, config, diag, instance, logo, memory, render, updater
+from . import __version__, config, diag, instance, logo, memory, monitor, render, updater
 from . import theme as t
 from .control import Controller
 from .devices import CATALOG, MOTHERBOARD, NOTHING, detect
@@ -68,6 +68,7 @@ class App(ctk.CTk):
         self.ctrl = Controller(self.cfg, notify=lambda key, text, error=False:
                                self.from_thread(self.on_driver_message, key, text, error))
         self.sensor_labels = None
+        self.tiles, self.graph, self.selected = [], None, None  # surveillance : tuiles affichées, grande courbe
         self.icue_warning = False   # iCUE lancé à l'ouverture d'IcueLite
         self.memory_modules = None  # barrettes lues par Windows, en arrière-plan (une seconde environ)
 
@@ -115,8 +116,11 @@ class App(ctk.CTk):
         mark = logo.wordmark(68)  # dessiné en double pour rester net sur les écrans haute densité
         self._wordmark = ctk.CTkImage(light_image=mark, dark_image=mark, size=(mark.width // 2, mark.height // 2))
         ctk.CTkLabel(side, image=self._wordmark, text="").grid(row=0, column=0, padx=22, pady=(24, 18), sticky="w")
-        self.home_btn = self.nav_button(side, "Tableau de bord", self.show_home)
-        self.home_btn.grid(row=1, column=0, padx=12, sticky="ew")
+        nav = ctk.CTkFrame(side, fg_color="transparent")
+        nav.grid(row=1, column=0, padx=12, sticky="ew")
+        self.home_btn = self.nav_button(nav, "Tableau de bord", self.show_home)
+        self.home_btn.pack(fill="x")
+        self.nav_button(nav, "Surveillance", self.show_monitor).pack(fill="x")
         self.device_list = ctk.CTkScrollableFrame(side, fg_color="transparent")
         self.device_list.grid(row=2, column=0, padx=4, pady=(10, 0), sticky="nsew")
         foot = ctk.CTkFrame(side, fg_color="transparent")
@@ -275,8 +279,7 @@ class App(ctk.CTk):
 
         driver = self.ctrl.drivers.get(spec.key)
         self.sensor_labels = None
-        self.icue_warning = False   # iCUE lancé à l'ouverture d'IcueLite
-        self.memory_modules = None  # barrettes lues par Windows, en arrière-plan (une seconde environ)
+        self.tiles, self.graph = [], None
         if driver is not None:
             self.settings_panels(spec, driver, row=5)
             if driver.experimental:
@@ -335,7 +338,7 @@ class App(ctk.CTk):
             seg.pack(anchor="w", padx=16, pady=(0, 14))
         if driver.fans or driver.sensors:
             self.fan_panel(spec, driver, s, row)
-            row += 1
+            row += 2 if driver.sensors else 1
         if driver.options:
             self.options_panel(spec, driver, s, row)
 
@@ -357,7 +360,7 @@ class App(ctk.CTk):
             if s["options"].get(name) in choices:
                 seg.set(s["options"][name])
             seg.pack(side="left")
-            label(box, help_text, 11, t.FAINT, anchor="w", justify="left", wraplength=500).pack(
+            label(box, help_text, 11, t.FAINT, anchor="w", justify="left", wraplength=400).pack(
                 anchor="w", padx=16 + 170, pady=(2, 4))
         ctk.CTkFrame(box, fg_color="transparent", height=8).pack()
 
@@ -488,20 +491,78 @@ class App(ctk.CTk):
                                          selected_hover_color=t.ACCENT_HOVER, font=ctk.CTkFont(t.FONT, 12), command=pump)
             seg.set(s["pump"] or driver.pump_modes[1])
             seg.pack(side="left")
+        ctk.CTkFrame(box, fg_color="transparent", height=8).pack()
         if driver.sensors:
-            self.sensor_labels = (spec.key, label(box, "Lecture des régimes…", 13, t.MUTED, anchor="w", justify="left"))
-            self.sensor_labels[1].pack(anchor="w", padx=16, pady=(8, 14))
+            self.sensor_tiles(spec.key, row + 1, columnspan=2)
+
+    # --- surveillance ---
+    def show_monitor(self):
+        self.current = None
+        self.clear()
+        self.tiles, self.graph, self.selected = [], None, None
+        label(self.content, "Surveillance", 24, bold=True).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 4))
+        label(self.content, "Températures, régimes et autres mesures des appareils, relevés toutes les 4 secondes. "
+              "Clique sur une tuile pour voir sa courbe.", 13, t.MUTED, anchor="w", justify="left",
+              wraplength=760).grid(row=1, column=0, columnspan=2, sticky="w", pady=(0, 14))
+        keys = [s.key for s in CATALOG if s.key in self.ctrl.drivers and self.ctrl.drivers[s.key].sensors]
+        row = 2
+        for key in keys:
+            spec = next(s for s in CATALOG if s.key == key)
+            label(self.content, spec.name, 15, bold=True).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 6))
+            self.sensor_tiles(key, row + 1, columnspan=2, framed=False)
+            row += 2
+        if keys:
+            self.graph = monitor.Graph(self.content)
+            self.graph.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(6, 12))
         else:
-            ctk.CTkFrame(box, fg_color="transparent", height=8).pack()
+            label(self.content, "Aucun appareil branché ne donne de mesures pour l'instant (watercooling H150i, "
+                  "hub iCUE LINK ; l'alimentation AX1600i viendra avec son pilote).", 13, t.FAINT, anchor="w",
+                  justify="left", wraplength=760).grid(row=row, column=0, columnspan=2, sticky="w")
+        self.refresh_tiles()
+
+    def sensor_tiles(self, key, row, columnspan=2, framed=True):
+        """Grille de tuiles des mesures d'un appareil (créées au fur et à mesure que les mesures arrivent)."""
+        holder = ctk.CTkFrame(self.content, fg_color="transparent")
+        holder.grid(row=row, column=0, columnspan=columnspan, sticky="ew", pady=(0, 12))
+        if framed:
+            label(holder, "Surveillance", 15, bold=True).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 6))
+        self.tiles.append((key, holder, {}))
+
+    def select_sensor(self, key, name, unit):
+        self.selected = (key, name, unit)
+        if self.graph is None or not self.graph.winfo_exists():
+            # depuis la page d'un appareil : la grande courbe s'ajoute sous ses tuiles
+            self.graph = monitor.Graph(self.content)
+            self.graph.grid(row=99, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        self.refresh_tiles()
+
+    def refresh_tiles(self):
+        for key, holder, made in self.tiles:
+            if not holder.winfo_exists():
+                continue
+            history = self.ctrl.history.get(key, {})
+            for (name, unit), values in history.items():
+                tile = made.get((name, unit))
+                if tile is None:
+                    n = len(made)
+                    tile = monitor.Tile(holder, name, unit, lambda k=key, nm=name, u=unit: self.select_sensor(k, nm, u))
+                    tile.grid(row=1 + n // 3, column=n % 3, padx=(0, 10), pady=(0, 10), sticky="w")
+                    made[(name, unit)] = tile
+                tile.update_values(list(values), self.selected == (key, name, unit))
+        if self.graph is not None and self.graph.winfo_exists():
+            if self.selected is None:
+                for key, _holder, made in self.tiles:
+                    if made:
+                        self.selected = (key, *next(iter(made)))
+                        break
+            if self.selected:
+                key, name, unit = self.selected
+                values = list(self.ctrl.history.get(key, {}).get((name, unit), []))
+                self.graph.show(name, unit, values, len(values) * 4)
 
     def refresh_sensors(self):
-        if self.sensor_labels and self.sensor_labels[1].winfo_exists():
-            key, widget = self.sensor_labels
-            data = self.ctrl.sensors.get(key)
-            if data:
-                parts = [f"{name} : {rpm} tr/min" for name, rpm in data["fans"]]
-                parts += [f"{name} : {temp:.1f} °C" for name, temp in data["temps"]]
-                widget.configure(text="   ".join(parts) or "Aucun ventilateur ni sonde détecté sur le hub.")
+        if self.tiles:
+            self.refresh_tiles()
         self.after(2000, self.refresh_sensors)
 
     def photo_card(self, spec):

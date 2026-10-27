@@ -8,6 +8,7 @@ envoyer deux paquets en même temps au même appareil. Les réglages sont rangé
 import queue
 import threading
 import time
+from collections import deque
 
 from . import config as cfgmod
 from .drivers import DriverError, has_driver, open_driver
@@ -31,6 +32,8 @@ class Controller:
         self.drivers = {}
         self.errors = {}
         self.sensors = {}
+        self.history = {}      # clé -> {(nom, unité): deque de valeurs}, une toutes les 4 s (10 minutes)
+        self.started = time.monotonic()
         self.jobs = queue.Queue()
         self.found = {}        # derniers appareils détectés, pour retenter ceux qui n'ont pas pu s'ouvrir
         self.stopping = False
@@ -107,11 +110,18 @@ class Controller:
                 driver.keepalive()
                 if driver.sensors:
                     self.sensors[key] = driver.read_sensors()
+                    self.record(key, self.sensors[key])
                 self.errors.pop(key, None)
             except (DriverError, OSError) as exc:
                 self.errors[key] = str(exc)
             finally:
                 driver.polling = False
+
+    def record(self, key, sensors):
+        from .monitor import readings
+        store = self.history.setdefault(key, {})
+        for name, value, unit in readings(sensors):
+            store.setdefault((name, unit), deque(maxlen=150)).append(value)
 
     # --- appareils ---
     def attach(self, found):
